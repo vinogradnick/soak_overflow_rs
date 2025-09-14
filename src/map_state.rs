@@ -1,3 +1,5 @@
+use std::fmt::{self, Display};
+
 use crate::{position::Position, reader::Reader};
 
 #[derive(Debug, Clone, Copy)]
@@ -8,6 +10,13 @@ pub struct Tile {
 }
 
 impl Tile {
+    pub fn get_cover_int(&self) -> i32 {
+        if self.tile_type != 0 {
+            self.tile_type + 1
+        } else {
+            1
+        }
+    }
     pub fn get_cover_value(&self) -> f32 {
         match self.tile_type {
             1 => 0.5,
@@ -18,6 +27,27 @@ impl Tile {
     pub fn is_occupied(&self) -> bool {
         self.entity_id != -1
     }
+    #[inline]
+    pub fn is_cover(&self) -> bool {
+        return self.tile_type == 1 || self.tile_type == 2;
+    }
+}
+
+impl Display for Tile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Tile({}, {}) type={} entity={}",
+            self.position.x, self.position.y, self.tile_type, self.entity_id
+        )
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TileScore {
+    pub danger: i32,
+    pub safety: i32,
+    pub position: i32,
 }
 
 #[derive(Debug)]
@@ -25,14 +55,14 @@ pub struct MapState {
     pub height: usize,
     pub width: usize,
     pub tiles: Vec<Tile>, // плоский массив
+    pub scoring: Vec<TileScore>,
 }
 
 impl MapState {
-    pub fn near_tile_pos(&self, position: &Position, tile_type: i32) -> Option<&Tile> {
-        self.tiles
-            .iter()
-            .filter(|&x| x.tile_type == tile_type && !x.is_occupied())
-            .min_by_key(|x| x.position.m_dist(&position))
+    pub fn neighbors(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
+        pos.neighbors(self.width, self.height)
+            .into_iter()
+            .filter_map(move |p| self.get_tile(p.x, p.y))
     }
 
     pub fn get_sizes(&self) -> (usize, usize) {
@@ -44,18 +74,14 @@ impl MapState {
             .filter(|h| h.tile_type == t_type)
             .min_by_key(|h| h.position.m_dist(position)) // выбираем минимальное расстояние
     }
-    #[inline]
-    pub fn to_index(width: usize, x: usize, y: usize) -> usize {
-        y * width + x
-    }
 
     #[inline]
-    pub fn in_bounds_pos(&self, pos: &Position) -> bool {
-        pos.x >= 0 && pos.y >= 0 && (pos.x as usize) < self.width && (pos.y as usize) < self.height
+    pub fn in_bounds(&self, x: usize, y: usize) -> bool {
+        x >= 0 && y >= 0 && x < self.width && y < self.height
     }
 
-    pub fn is_in_map(pos: &Position, sizes: (usize, usize)) -> bool {
-        pos.x < 0 && pos.x < sizes.0 as i32 && pos.y < 0 && pos.y < sizes.1 as i32
+    pub fn is_in_map(&self, pos: &Position) -> bool {
+        self.in_bounds(pos.x, pos.y)
     }
     pub fn from_input<R: Reader>(reader: &mut R) -> Self {
         reader.read_map()
@@ -110,10 +136,7 @@ impl MapState {
             for (x, ch) in line.chars().enumerate() {
                 let val = ch.to_digit(10).unwrap() as i32;
                 tiles.push(Tile {
-                    position: Position {
-                        x: x as i32,
-                        y: y as i32,
-                    },
+                    position: Position { x: x, y: y },
                     tile_type: val,
                     entity_id: -1,
                 });
@@ -124,6 +147,7 @@ impl MapState {
             height,
             width,
             tiles,
+            scoring: vec![],
         }
     }
 }

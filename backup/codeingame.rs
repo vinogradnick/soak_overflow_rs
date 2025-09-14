@@ -1,17 +1,16 @@
 pub mod cg_reader;
 pub mod context;
-pub mod hero_cmd;
-pub mod hero_profile;
+pub mod hero;
 pub mod map_state;
-pub mod pathfinder;
 mod position;
 pub mod reader;
 pub mod sim_reader;
 pub mod strategy;
+pub mod utils;
 
 use crate::cg_reader::CGReader;
 use crate::context::GameContext;
-use crate::hero_profile::HeroService;
+use crate::hero::hero_service::HeroService;
 use crate::map_state::MapState;
 
 use crate::reader::Reader;

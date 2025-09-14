@@ -1,11 +1,14 @@
-use std::{collections::HashMap, io};
+use std::{collections::HashMap, fs, io};
 
 use crate::{
-    hero_cmd::{HeroAction, HeroCmd},
-    hero_profile::{HeroEntity, HeroProfile},
+    hero::{
+        hero_cmd::{HeroAction, HeroCommand},
+        hero_entity::HeroEntity,
+        hero_profile::HeroProfile,
+    },
     map_state::MapState,
     position::Position,
-    reader::{Reader, read_value},
+    reader::Reader,
 };
 
 // ---------- SimReader ----------
@@ -13,62 +16,94 @@ pub struct SimReader {
     values: Vec<i32>,
     profiles: Vec<HeroProfile>,
     entities: Vec<HeroEntity>,
-    read_profiles_once: bool,
     map: MapState,
     cursor: usize,
 }
 impl SimReader {
-    fn apply_hero_commands(&mut self, cmd: HeroCmd) -> Result<(), Box<dyn std::error::Error>> {
-        for action in cmd.actions {
-            self.apply_action(cmd.hero_id, action)?;
+    fn apply_hero_commands(&mut self, cmd: &HeroCommand) -> Result<(), Box<dyn std::error::Error>> {
+        for action in &cmd.1 {
+            self.apply_action(cmd.0, action)?;
         }
+        self.evaluate()?;
         Ok(())
     }
 
     fn apply_action(
         &mut self,
         id: i32,
-        action: HeroAction,
+        action: &HeroAction,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(entity) = self.entities.get_mut(id as usize) {
-            match action {
-                HeroAction::Move(position) => {
-                    let tile = self
-                        .map
-                        .get_tile_mut(position.x as usize, position.y as usize);
+        let idx = self
+            .entities
+            .iter()
+            .position(|e| e.agent_id == id)
+            .ok_or_else(|| format!("Entity with id {} not found", id))?;
 
-                    match tile {
-                        Some(t) => {
-                            if !t.is_occupied() {
-                                t.entity_id = entity.agent_id;
-                                entity.position = position;
-                            }
-                        }
-                        None => {
-                            eprintln!("Error: invalid position {}", &position)
-                        }
-                    }
+        match action {
+            HeroAction::Move(pos) => self.move_entity(idx, *pos),
+            HeroAction::Shoot(target_id) => self.shoot_entity(idx, *target_id),
+            HeroAction::Wait => self.wait_entity(idx),
+            HeroAction::Throw(position) => self.throw_entities(position.clone()),
+        }
+    }
 
-                    eprintln!(" Entity{} Move  to {}", id, position);
-                }
-                HeroAction::Shoot(target_id) => {
-                    let target = self.entities.get_mut(target_id as usize);
-                    if let Some(hit) = target {
-                        hit.wetness += 6;
+    fn evaluate(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.entities.retain(|x| x.wetness <= 200);
 
-                        eprintln!(" Entity {} Shoot  to Entity {}", id, hit.agent_id);
-                    } else {
-                        eprintln!("Cannot Shoot Entity {}", target_id);
-                    }
-                }
-                HeroAction::Wait => {
-                    println!("Entity {} waits", id);
-                    // entity.wait();
-                }
+        Ok(())
+    }
+
+    fn throw_entities(&mut self, pos: Position) -> Result<(), Box<dyn std::error::Error>> {
+        let radius = 1;
+
+        for e in self.entities.iter_mut().filter(|e| {
+            let dx = e.position.x as i32 - pos.x as i32;
+            let dy = e.position.y as i32 - pos.y as i32;
+            dx.abs() <= radius && dy.abs() <= radius
+        }) {
+            e.wetness = 999;
+        }
+
+        Ok(())
+    }
+
+    fn move_entity(&mut self, idx: usize, pos: Position) -> Result<(), Box<dyn std::error::Error>> {
+        let entity = &mut self.entities[idx];
+        if let Some(tile) = self.map.get_tile_mut(pos.x as usize, pos.y as usize) {
+            if !tile.is_occupied() {
+                tile.entity_id = entity.agent_id;
+                entity.position = pos;
+                eprintln!("Entity {} moved to {}", entity.agent_id, pos);
+            } else {
+                eprintln!("Tile at {} is occupied", pos);
             }
         } else {
-            return Err(format!("Entity with id {} not found", id).into());
+            eprintln!("Invalid position {}", pos);
         }
+        Ok(())
+    }
+
+    fn shoot_entity(
+        &mut self,
+        shooter_idx: usize,
+        target_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let shooter = self.entities[shooter_idx];
+        if let Some(target) = self.entities.iter_mut().find(|e| e.agent_id == target_id) {
+            target.wetness += 6;
+            eprintln!(
+                "Entity {} shot Entity {}",
+                shooter.agent_id, target.agent_id
+            );
+        } else {
+            eprintln!("Cannot shoot Entity {}", target_id);
+        }
+        Ok(())
+    }
+
+    fn wait_entity(&self, idx: usize) -> Result<(), Box<dyn std::error::Error>> {
+        let entity = &self.entities[idx];
+        println!("Entity {} waits", entity.agent_id);
         Ok(())
     }
 }
@@ -84,80 +119,24 @@ impl Reader for SimReader {
         2
     }
 
-    fn step(&mut self, cmd: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let commands = cmd
-            .split(";")
-            .map(|x| x.trim())
-            .filter(|x| !x.is_empty())
-            .collect::<Vec<_>>();
-
-        // Первый элемент - ID агента
-        let agent_id: i32 = commands[0].parse().unwrap();
-
-        let mut hero_cmd = HeroCmd::new(agent_id);
-
-        // Обрабатываем остальные команды
-        for command in &commands[1..] {
-            let parts = command.split_whitespace().collect::<Vec<_>>();
-
-            if parts.is_empty() {
-                continue;
-            }
-
-            match parts[0] {
-                "MOVE" => {
-                    if parts.len() == 3 {
-                        let x: i32 = parts[1].parse()?;
-                        let y: i32 = parts[2].parse()?;
-                        hero_cmd.actions.push(HeroAction::Move(Position { x, y }));
-                    } else {
-                        return Err(format!("Invalid MOVE command: {}", command).into());
-                    }
-                }
-                "SHOOT" => {
-                    if parts.len() == 2 {
-                        let target_id: i32 = parts[1].parse()?;
-                        hero_cmd.actions.push(HeroAction::Shoot(target_id));
-                    } else {
-                        return Err(format!("Invalid SHOOT command: {}", command).into());
-                    }
-                }
-                "WAIT" => {
-                    hero_cmd.actions.push(HeroAction::Wait);
-                }
-                _ => {
-                    return Err(format!("Unknown command: {}", parts[0]).into());
-                }
-            }
-        }
-
+    fn step(&mut self, cmd: &HeroCommand) -> Result<(), Box<dyn std::error::Error>> {
         // Применяем все действия героя
-        self.apply_hero_commands(hero_cmd)?;
+        self.apply_hero_commands(cmd)?;
 
         Ok(())
     }
 
     fn read_map(&mut self) -> MapState {
-        let map_container = r#"0000000000000
-0101300032020
-4000000000004
-0202300031010
-0000000000000"#;
+        let map_container = fs::read_to_string("./data_source/map.txt").unwrap();
 
-        self.map = MapState::from_str(map_container);
+        self.map = MapState::from_str(&map_container);
 
-        MapState::from_str(map_container)
+        MapState::from_str(&map_container)
     }
 
     fn read_profiles(&mut self, _owner_id: i32) -> Vec<HeroProfile> {
-        let input = r#"Profile:1 0 0 6 50 0
-Profile:2 0 0 6 50 0
-Profile:3 1 0 6 100 0
-Profile:4 1 0 6 100 0
-Profile:5 1 0 6 100 0
-Profile:6 1 0 6 100 0
-"#;
-        for line in input.lines() {
+        let profiles = fs::read_to_string("./data_source/profile.txt").unwrap();
+        for line in profiles.lines() {
             // убираем префикс "Profile:"
             let line = line.strip_prefix("Profile:").unwrap_or(line);
 
@@ -195,15 +174,9 @@ Profile:6 1 0 6 100 0
             return self.entities.clone();
         }
 
-        let input = r#"1 0 2 0 0 0
-2 12 2 0 0 0
-3 4 1 0 0 0
-4 4 3 0 0 0
-5 8 1 0 0 0
-6 8 3 0 0 0
-        "#;
+        let entities = fs::read_to_string("./data_source/entities.txt").unwrap();
 
-        for line in input.lines() {
+        for line in entities.lines() {
             let inputs: Vec<i32> = line
                 .split_whitespace()
                 .map(|s| s.parse::<i32>().unwrap())
@@ -214,14 +187,13 @@ Profile:6 1 0 6 100 0
             }
 
             let agent_id = inputs[0];
-            let x = inputs[1];
-            let y = inputs[2];
+            let x = inputs[1] as usize;
+            let y = inputs[2] as usize;
             let cooldown = inputs[3];
             let splash_bombs = inputs[4];
             let wetness = inputs[5];
 
             if let Some(profile) = _profiles.get(&agent_id) {
-              
                 self.entities.push(HeroEntity {
                     position: Position::new(x, y),
                     is_owner: profile.is_owner,
@@ -240,11 +212,12 @@ Profile:6 1 0 6 100 0
         Self {
             profiles: vec![],
             entities: vec![],
-            read_profiles_once: false,
+
             map: MapState {
                 height: 1,
                 width: 0,
                 tiles: vec![],
+                scoring: vec![],
             },
             values: vec![0],
             cursor: 0,

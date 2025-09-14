@@ -21,7 +21,7 @@ use macroquad::prelude::*;
 
 #[macroquad::main("MyGame")]
 async fn main() {
-    let mut strat = SaveStrategy::new();
+    let strat = SaveStrategy;
     let mut reader = SimReader::new();
     let id = reader.read_i32();
     let mut hero_service = HeroService::new(id);
@@ -35,7 +35,7 @@ async fn main() {
         hero_service.entities_list().for_each(|&x| {
             map_state.update_tile(
                 x.position.x as usize,
-                x.position.y as usize, 
+                x.position.y as usize,
                 if x.is_owner { 4 } else { 3 },
                 x.agent_id,
             )

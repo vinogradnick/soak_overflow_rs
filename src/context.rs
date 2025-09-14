@@ -1,4 +1,4 @@
-use crate::{hero_profile::HeroService, map_state::MapState};
+use crate::{hero::hero_service::HeroService, map_state::MapState};
 
 pub struct GameContext<'a> {
     pub hero_service: &'a HeroService,
