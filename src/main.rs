@@ -35,7 +35,7 @@ async fn main() {
         hero_service.entities_list().for_each(|&x| {
             map_state.update_tile(
                 x.position.x as usize,
-                x.position.y as usize, 
+                x.position.y as usize,
                 if x.is_owner { 4 } else { 3 },
                 x.agent_id,
             )

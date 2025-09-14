@@ -20,7 +20,7 @@ use crate::strategy::{SaveStrategy, Strategy};
  * Win the water fight by controlling the most territory, or out-soak your opponent!
  **/
 fn main() {
-    let strat = SaveStrategy;
+    let mut strat = SaveStrategy;
     let mut reader = CGReader::new();
     let id = reader.read_i32();
     let mut hero_service = HeroService::new(id);

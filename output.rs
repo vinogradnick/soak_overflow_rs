@@ -228,7 +228,7 @@ pub mod hero {
                     .values()
                     .filter(|e| !e.is_owner)
                     .filter_map(move |enemy| {
-                        let dist = hero.position.m_dist(&enemy.position);
+                        let dist = hero.position.dist(&enemy.position);
                         if dist <= range {
                             Some((enemy, dist))
                         } else {
@@ -319,6 +319,9 @@ pub mod map_state {
                 _ => 0.0,
             }
         }
+        pub fn is_free(&self) -> bool {
+            self.tile_type == 0
+        }
         pub fn is_occupied(&self) -> bool {
             self.entity_id != -1
         }
@@ -350,6 +353,11 @@ pub mod map_state {
         pub scoring: Vec<TileScore>,
     }
     impl MapState {
+        pub fn neighbors_range(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
+            pos.neighbors_range(self.width, self.height)
+                .into_iter()
+                .filter_map(move |p| self.get_tile(p.x, p.y))
+        }
         pub fn neighbors(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
             pos.neighbors(self.width, self.height)
                 .into_iter()
@@ -362,7 +370,7 @@ pub mod map_state {
             self.tiles
                 .iter()
                 .filter(|h| h.tile_type == t_type)
-                .min_by_key(|h| h.position.m_dist(position))
+                .min_by_key(|h| h.position.dist(position))
         }
         #[inline]
         pub fn in_bounds(&self, x: usize, y: usize) -> bool {
@@ -458,6 +466,27 @@ mod position {
     }
     impl Position {
         pub const DIRECTIONS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+        pub fn neighbors_range(&self, width: usize, height: usize) -> Vec<Position> {
+            let mut result = Vec::new();
+            let x = self.x as isize;
+            let y = self.y as isize;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let nx = x + dx;
+                    let ny = y + dy;
+                    if nx >= 0 && nx < width as isize && ny >= 0 && ny < height as isize {
+                        result.push(Position {
+                            x: nx as usize,
+                            y: ny as usize,
+                        });
+                    }
+                }
+            }
+            result
+        }
         pub fn neighbors(&self, width: usize, height: usize) -> Vec<Position> {
             let x = self.x;
             let y = self.y;
@@ -486,7 +515,10 @@ mod position {
         pub fn new(x: usize, y: usize) -> Self {
             Self { x, y }
         }
-        pub fn m_dist(&self, other: &Position) -> i32 {
+        pub fn dist_raw(&self, x: usize, y: usize) -> i32 {
+            (self.x as i32 - x as i32).abs() + (self.y as i32 - y as i32).abs()
+        }
+        pub fn dist(&self, other: &Position) -> i32 {
             (self.x as i32 - other.x as i32).abs() + (self.y as i32 - other.y as i32).abs()
         }
         pub fn dir(&self, other: &Position) -> (i32, i32) {
@@ -550,7 +582,6 @@ pub mod sim_reader {
         values: Vec<i32>,
         profiles: Vec<HeroProfile>,
         entities: Vec<HeroEntity>,
-        read_profiles_once: bool,
         map: MapState,
         cursor: usize,
     }
@@ -722,7 +753,6 @@ pub mod sim_reader {
             Self {
                 profiles: vec![],
                 entities: vec![],
-                read_profiles_once: false,
                 map: MapState {
                     height: 1,
                     width: 0,
@@ -740,7 +770,10 @@ pub mod strategy {
         context::GameContext,
         hero::hero_cmd::{HeroAction, HeroCommand},
         position::Position,
-        utils::{cover::is_hero_icopued, targeting::find_bomb_target},
+        utils::{
+            cover::is_hero_icopued,
+            targeting::{find_bomb_target, find_safe_bomb_position},
+        },
     };
     pub trait Strategy {
         fn execute(&mut self, ctx: &GameContext, owns: usize) -> Vec<HeroCommand>;
@@ -765,23 +798,19 @@ pub mod strategy {
             for hero in ctx.hero_service.my_list() {
                 let mut cmd: Vec<HeroAction> = vec![];
                 if is_hero_icopued(ctx, &hero.position) {
-                    let target = find_bomb_target(ctx, &hero.position);
-                    if let Some(t) = target {
-                        cmd.push(HeroAction::Throw(t));
+                    let target = find_safe_bomb_position(ctx, &hero.position);
+                    if let Some((moving, bomber)) = target {
+                        cmd.push(HeroAction::Move(moving));
+                        cmd.push(HeroAction::Throw(bomber));
+                    }
+                    if cmd.len() == 0 {
+                        cmd.push(HeroAction::Wait);
                     }
                 } else {
-                    let mut hero_clone = hero.clone();
-                    if !hero.position.eq(&SaveStrategy::WAYPOINTS[self.cursor]) {
-                        hero_clone.position = SaveStrategy::WAYPOINTS[self.cursor];
-                        cmd.push(HeroAction::Move(hero_clone.position));
-                    } else {
-                        self.cursor += 1;
-                        let target = find_bomb_target(ctx, &hero_clone.position);
-                        if let Some(t) = target {
-                            cmd.push(HeroAction::Throw(t));
-                        } else {
-                            cmd.push(HeroAction::Wait);
-                        }
+                    let target = find_safe_bomb_position(ctx, &hero.position);
+                    if let Some((moving, bomber)) = target {
+                        cmd.push(HeroAction::Move(moving));
+                        cmd.push(HeroAction::Throw(bomber));
                     }
                 }
                 commands.push(HeroCommand(hero.agent_id, cmd));
@@ -808,7 +837,7 @@ pub mod utils {
                 .tiles
                 .iter()
                 .filter_map(|tile| {
-                    let dist = tile.position.m_dist(&hero.position);
+                    let dist = tile.position.dist(&hero.position);
                     (tile.is_cover()).then_some((dist, tile))
                 })
                 .collect();
@@ -878,22 +907,66 @@ pub mod utils {
         pub fn k_closest_enemies<'a>(ctx: &GameContext) -> Vec<i32> {
             vec![]
         }
-        pub fn find_save_bomb_position(
-            ctx: &GameContext,
-            position: &Position,
+        pub fn find_safe_bomb_position<'a>(
+            ctx: &'a GameContext,
+            position: &'a Position,
         ) -> Option<(Position, Position)> {
-            for nbh in ctx.map_state.neighbors(position) {
-                if let Some(t) = find_bomb_target(ctx, &nbh.position) {
-                    return Some((nbh.position.clone(), t.clone()));
+            let items = ctx
+                .map_state
+                .neighbors_range(position)
+                .filter(|&tile| tile.is_free())
+                .min_by_key(|nbh| check_for_bomb(ctx, &nbh.position));
+            if let Some(point) = items {
+                if let Some(closest) = find_bomb_closest_target(ctx, &point.position) {
+                    return Some((point.position, closest.clone()));
                 }
             }
             None
+        }
+        pub fn check_for_bomb(ctx: &GameContext, position: &Position) -> usize {
+            let enemies = ctx
+                .hero_service
+                .enemy_list()
+                .filter(|enemy| enemy.position.dist(position) <= 1)
+                .count();
+            return enemies;
+        }
+        pub fn find_bomb_closest_target<'a>(
+            ctx: &'a GameContext<'a>,
+            position: &'a Position,
+        ) -> Option<&'a Position> {
+            let min_x = 0;
+            let min_y = 0;
+            let max_x = position.x - 2;
+            let max_y = position.y + 1;
+            let enemies: Vec<_> = ctx
+                .hero_service
+                .enemy_list()
+                .filter(|p| p.position.dist(position) <= 3)
+                .collect();
+            let mut out = (0, position);
+            for y in min_y..=max_y {
+                for x in min_x..=max_x {
+                    if let Some(tile) = ctx.map_state.get_tile(x, y) {
+                        if !tile.is_cover() && position.dist(&tile.position) >= 2 {
+                            let sum = enemies
+                                .iter()
+                                .filter(|en| en.position.dist(&tile.position) <= 2)
+                                .count();
+                            if sum > out.0 {
+                                out = (sum, &tile.position);
+                            }
+                        }
+                    }
+                }
+            }
+            return Some(out.1);
         }
         pub fn find_bomb_target<'a>(ctx: &GameContext, position: &Position) -> Option<Position> {
             let enemies: Vec<_> = ctx
                 .hero_service
                 .enemy_list()
-                .filter(|x| x.position.m_dist(&position) <= 4)
+                .filter(|x| x.position.dist(&position) <= 4)
                 .collect();
             let width = ctx.map_state.width;
             let height = ctx.map_state.height;
@@ -931,9 +1004,7 @@ pub mod utils {
                     }
                 }
             }
-            if let Some(p) = best_pos {
-                eprintln!("BEST_BOMB_POSITION:{}", p);
-            }
+            if let Some(p) = best_pos {}
             best_pos
         }
         pub fn find_shoot_target<'a>(ctx: &GameContext, hero: &HeroEntity) -> Option<i32> {

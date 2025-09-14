@@ -24,6 +24,9 @@ impl Tile {
             _ => 0.0,
         }
     }
+    pub fn is_free(&self) -> bool {
+        self.tile_type == 0
+    }
     pub fn is_occupied(&self) -> bool {
         self.entity_id != -1
     }
@@ -59,6 +62,12 @@ pub struct MapState {
 }
 
 impl MapState {
+    pub fn neighbors_range(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
+        pos.neighbors_range(self.width, self.height)
+            .into_iter()
+            .filter_map(move |p| self.get_tile(p.x, p.y))
+    }
+
     pub fn neighbors(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
         pos.neighbors(self.width, self.height)
             .into_iter()
@@ -72,7 +81,7 @@ impl MapState {
         self.tiles
             .iter()
             .filter(|h| h.tile_type == t_type)
-            .min_by_key(|h| h.position.m_dist(position)) // выбираем минимальное расстояние
+            .min_by_key(|h| h.position.dist(position)) // выбираем минимальное расстояние
     }
 
     #[inline]

@@ -3,9 +3,23 @@ use macroquad::prelude::*;
 
 pub const BLACK_BG: Color = BLACK;
 
-fn color_convert(hex: &'static str) -> Result<u32, String> {
-    let hex = hex.trim_start_matches('#');
-    u32::from_str_radix(hex, 16).map_err(|e| e.to_string())
+fn color_convert(s: &'static str) -> Color {
+    let s = s.trim_start_matches('#');
+    let r = u8::from_str_radix(&s[0..2], 16).unwrap();
+    let g = u8::from_str_radix(&s[2..4], 16).unwrap();
+    let b = u8::from_str_radix(&s[4..6], 16).unwrap();
+    let a = if s.len() == 8 {
+        u8::from_str_radix(&s[6..8], 16).unwrap()
+    } else {
+        255
+    };
+
+    Color::new(
+        r as f32 / 255.0,
+        g as f32 / 255.0,
+        b as f32 / 255.0,
+        a as f32 / 255.0,
+    )
 }
 
 pub fn draw_map(ctx: &GameContext) {
@@ -110,7 +124,7 @@ fn draw_tile_text(
     draw_text(text, x, y, font_size, color);
 }
 
-pub fn debug_position(ctx: &GameContext, position: &Position, color: &'static str, meta: &str) {
+pub fn debug_position(ctx: &GameContext, position: &Position, color: &'static str, meta: String) {
     let tile_w: f32 = screen_width() / ctx.map_state.width as f32;
     let tile_h = screen_height() / ctx.map_state.height as f32;
 
@@ -121,12 +135,7 @@ pub fn debug_position(ctx: &GameContext, position: &Position, color: &'static st
         tile_h,
     );
 
-    match color_convert(color) {
-        Ok(t) => {
-            draw_rectangle(rec.x, rec.y, tile_w, tile_h, Color::from_hex(t));
-        }
-        _ => {}
-    }
+    draw_rectangle(rec.x, rec.y, tile_w, tile_h, color_convert(color));
 
-    draw_tile_text(meta, position, tile_w, tile_h, 20.0, YELLOW);
+    draw_tile_text(meta.as_str(), position, tile_w, tile_h, 20.0, YELLOW);
 }

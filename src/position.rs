@@ -1,6 +1,6 @@
 use std::{fmt::Display, ops::Add};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Position {
     pub x: usize,
     pub y: usize,
@@ -30,6 +30,32 @@ impl Add<(usize, usize)> for Position {
 
 impl Position {
     pub const DIRECTIONS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+
+    pub fn neighbors_range(&self, width: usize, height: usize) -> Vec<Position> {
+        let mut result = Vec::new();
+        let x = self.x as isize;
+        let y = self.y as isize;
+
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                if dx == 0 && dy == 0 {
+                    continue; // пропускаем саму текущую позицию
+                }
+
+                let nx = x + dx;
+                let ny = y + dy;
+
+                if nx >= 0 && nx < width as isize && ny >= 0 && ny < height as isize {
+                    result.push(Position {
+                        x: nx as usize,
+                        y: ny as usize,
+                    });
+                }
+            }
+        }
+
+        result
+    }
 
     pub fn neighbors(&self, width: usize, height: usize) -> Vec<Position> {
         let x = self.x;
@@ -63,7 +89,11 @@ impl Position {
     pub fn new(x: usize, y: usize) -> Self {
         Self { x, y }
     }
-    pub fn m_dist(&self, other: &Position) -> i32 {
+    pub fn dist_raw(&self, x: usize, y: usize) -> i32 {
+        (self.x as i32 - x as i32).abs() + (self.y as i32 - y as i32).abs()
+    }
+
+    pub fn dist(&self, other: &Position) -> i32 {
         (self.x as i32 - other.x as i32).abs() + (self.y as i32 - other.y as i32).abs()
     }
     pub fn dir(&self, other: &Position) -> (i32, i32) {

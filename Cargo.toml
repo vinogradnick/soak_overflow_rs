@@ -3,5 +3,14 @@ name = "soak_ovevflow"
 version = "0.1.0"
 edition = "2024"
 
+[profile.release]
+debug = true
+
+
+
+[profile.profiling]
+inherits = "release"
+debug = true
+
 [dependencies]
 macroquad = "0.4.14"

@@ -1,6 +1,8 @@
 use crate::{
-    context::GameContext, hero::hero_entity::HeroEntity, position::Position,
-    utils::cover::get_hero_cover_quality,
+    context::GameContext,
+    hero::hero_entity::HeroEntity,
+    position::Position,
+    utils::{cover::get_hero_cover_quality, pathfinder::find_path_with_cost},
 };
 
 pub fn nearest_enemy<'a>(ctx: &GameContext) -> i32 {
@@ -10,23 +12,119 @@ pub fn nearest_enemy<'a>(ctx: &GameContext) -> i32 {
 pub fn k_closest_enemies<'a>(ctx: &GameContext) -> Vec<i32> {
     vec![]
 }
-pub fn find_save_bomb_position(
-    ctx: &GameContext,
-    position: &Position,
-) -> Option<(Position, Position)> {
-    for nbh in ctx.map_state.neighbors(position) {
-        if let Some(t) = find_bomb_target(ctx, &nbh.position) {
-            return Some((nbh.position.clone(), t.clone()));
+
+pub fn find_all_map_bomb_position<'a>(ctx: &'a GameContext, position: &'a Position) {
+    let items = ctx.map_state.tiles.iter().filter(|&tile| !tile.is_cover());
+
+    for tile in items {
+        let has_path = find_path_with_cost(ctx, position, &tile.position);
+
+        if let Some(c) = has_path {
+            for p in c {
+                let t = ctx.map_state.get_tile(p.0.x, p.0.y);
+
+                if let Some(tow) = t {
+                    if tow.is_free() {
+                        crate::viz::render::debug_position(
+                            ctx,
+                            &p.0,
+                            "#851010ff",
+                            format!("cost:{}", p.1),
+                        );
+                    }
+                }
+            }
         }
     }
+}
+
+pub fn find_safe_bomb_position<'a>(
+    ctx: &'a GameContext,
+    position: &'a Position,
+) -> Option<(Position, Position)> {
+    let items = ctx
+        .map_state
+        .neighbors_range(position)
+        .filter(|&tile| tile.is_free())
+        .min_by_key(|nbh| check_for_bomb(ctx, &nbh.position));
+
+    if let Some(point) = items {
+        // crate::viz::render::debug_position(
+        //     ctx,
+        //     &point.position,
+        //     "#ce2743ff",
+        //     format!("Count:{}", 1),
+        // );
+
+        if let Some(closest) = find_bomb_closest_target(ctx, &point.position) {
+            if point.position.dist(closest) >= 2 {
+                return Some((point.position, closest.clone()));
+            }
+        }
+    }
+
     None
+}
+
+pub fn check_for_bomb(ctx: &GameContext, position: &Position) -> usize {
+    let enemies = ctx
+        .hero_service
+        .enemy_list()
+        .filter(|enemy| enemy.position.dist(position) <= 1)
+        .count();
+
+    return enemies;
+}
+
+pub fn find_bomb_closest_target<'a>(
+    ctx: &'a GameContext<'a>,
+    position: &'a Position,
+) -> Option<&'a Position> {
+    let min_x = 0;
+    let min_y = 0;
+    let max_x = position.x - 2;
+    let max_y = position.y + 1;
+
+    let enemies: Vec<_> = ctx
+        .hero_service
+        .enemy_list()
+        .filter(|p| p.position.dist(position) <= 3)
+        .collect();
+
+    let mut out = (0, position);
+
+    for y in min_y..=max_y {
+        for x in min_x..=max_x {
+            if let Some(tile) = ctx.map_state.get_tile(x, y) {
+                if !tile.is_cover() && position.dist(&tile.position) >= 2 {
+                    let sum = enemies
+                        .iter()
+                        .filter(|en| en.position.dist(&tile.position) <= 2)
+                        .count();
+
+                    // crate::viz::render::debug_position(
+                    //     ctx,
+                    //     &tile.position,
+                    //     "#92147dff",
+                    //     format!("Count:{}", sum),
+                    // );
+
+                    if sum > out.0 {
+                        out = (sum, &tile.position);
+                    }
+                }
+            }
+        }
+    }
+
+    return Some(out.1);
 }
 
 pub fn find_bomb_target<'a>(ctx: &GameContext, position: &Position) -> Option<Position> {
     let enemies: Vec<_> = ctx
         .hero_service
         .enemy_list()
-        .filter(|x| x.position.m_dist(&position) <= 4)
+        .filter(|x| x.position.dist(&position) <= 4)
         .collect();
 
     let width = ctx.map_state.width;
@@ -80,12 +178,7 @@ pub fn find_bomb_target<'a>(ctx: &GameContext, position: &Position) -> Option<Po
     }
 
     if let Some(p) = best_pos {
-        crate::viz::render::debug_position(
-            ctx,
-            &p,
-            "#b31f44ff",
-            format!("score:{}I", max_score).as_str(),
-        )
+        // crate::viz::render::debug_position(ctx, &p, "#b31f44ff", format!("score:{}I", max_score))
     }
 
     best_pos

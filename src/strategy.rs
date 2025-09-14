@@ -2,7 +2,10 @@ use crate::{
     context::GameContext,
     hero::hero_cmd::{HeroAction, HeroCommand},
     position::Position,
-    utils::{cover::is_hero_icopued, targeting::find_bomb_target},
+    utils::{
+        cover::is_hero_icopued,
+        targeting::{find_all_map_bomb_position, find_bomb_target, find_safe_bomb_position},
+    },
 };
 
 pub trait Strategy {
@@ -34,25 +37,22 @@ impl Strategy for SaveStrategy {
             let mut cmd: Vec<HeroAction> = vec![];
 
             if is_hero_icopued(ctx, &hero.position) {
-                let target = find_bomb_target(ctx, &hero.position);
-                if let Some(t) = target {
-                    cmd.push(HeroAction::Throw(t));
+                let target = find_safe_bomb_position(ctx, &hero.position);
+                if let Some((moving, bomber)) = target {
+                    cmd.push(HeroAction::Move(moving));
+                    cmd.push(HeroAction::Throw(bomber));
+                }
+
+                if cmd.len() == 0 {
+                    cmd.push(HeroAction::Wait);
                 }
             } else {
-                let mut hero_clone = hero.clone();
+                find_all_map_bomb_position(ctx, &hero.position);
 
-                if !hero.position.eq(&SaveStrategy::WAYPOINTS[self.cursor]) {
-                    hero_clone.position = SaveStrategy::WAYPOINTS[self.cursor];
-                    cmd.push(HeroAction::Move(hero_clone.position));
-                } else {
-                    self.cursor += 1;
-                    let target = find_bomb_target(ctx, &hero_clone.position);
-                    if let Some(t) = target {
-                        cmd.push(HeroAction::Throw(t));
-                    } else {
-                        cmd.push(HeroAction::Wait);
-                    }
-                }
+                // if let Some((moving, bomber)) = target {
+                //     cmd.push(HeroAction::Move(moving));
+                //     cmd.push(HeroAction::Throw(bomber));
+                // }
             }
 
             // if !cover::is_covered_hero(ctx, &hero.position) {

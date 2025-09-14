@@ -6,7 +6,7 @@ pub fn find_cover_tile<'a>(ctx: &'a GameContext<'a>, hero: &'a HeroEntity) -> Op
         .tiles
         .iter()
         .filter_map(|tile| {
-            let dist = tile.position.m_dist(&hero.position);
+            let dist = tile.position.dist(&hero.position);
             (tile.is_cover()).then_some((dist, tile))
         })
         .collect();

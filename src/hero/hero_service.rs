@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     hero::{hero_entity::HeroEntity, hero_profile::HeroProfile, hero_view::HeroView},
+    position::Position,
     reader::Reader,
 };
 
@@ -26,13 +27,23 @@ impl HeroService {
             .values()
             .filter(|e| !e.is_owner) // только враги
             .filter_map(move |enemy| {
-                let dist = hero.position.m_dist(&enemy.position);
+                let dist = hero.position.dist(&enemy.position);
                 if dist <= range {
                     Some((enemy, dist))
                 } else {
                     None
                 }
             })
+    }
+
+    pub fn enemy_range(
+        &self,
+        position: &Position,
+        range: &i32,
+    ) -> impl Iterator<Item = &HeroEntity> {
+        self.entities
+            .values()
+            .filter(|x| !x.is_owner && x.position.dist(position) <= *range)
     }
 
     pub fn enemy_list(&self) -> impl Iterator<Item = &HeroEntity> {

@@ -21,7 +21,7 @@ use macroquad::prelude::*;
 
 #[macroquad::main("MyGame")]
 async fn main() {
-    let strat = SaveStrategy;
+    let mut strat = SaveStrategy::new();
     let mut reader = SimReader::new();
     let id = reader.read_i32();
     let mut hero_service = HeroService::new(id);
