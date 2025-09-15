@@ -5,17 +5,10 @@ use crate::{
     utils::{cover::get_hero_cover_quality, pathfinder::find_path_with_cost},
 };
 
-pub fn nearest_enemy<'a>(ctx: &GameContext) -> i32 {
-    0
-}
-
-pub fn k_closest_enemies<'a>(ctx: &GameContext) -> Vec<i32> {
-    vec![]
-}
-
 pub fn find_all_map_bomb_position<'a>(ctx: &'a GameContext, position: &'a Position) {
     let items = ctx.map_state.tiles.iter().filter(|&tile| !tile.is_cover());
 
+    let mut step = 0;
     for tile in items {
         let has_path = find_path_with_cost(ctx, position, &tile.position);
 
@@ -28,12 +21,17 @@ pub fn find_all_map_bomb_position<'a>(ctx: &'a GameContext, position: &'a Positi
                         crate::viz::render::debug_position(
                             ctx,
                             &p.0,
-                            "#851010ff",
+                            "#25dd00fb",
                             format!("cost:{}", p.1),
                         );
                     }
                 }
             }
+        }
+        if step + 1 > 15 {
+            step = 0;
+        } else {
+            step += 1;
         }
     }
 }
@@ -177,9 +175,9 @@ pub fn find_bomb_target<'a>(ctx: &GameContext, position: &Position) -> Option<Po
         }
     }
 
-    if let Some(p) = best_pos {
-        // crate::viz::render::debug_position(ctx, &p, "#b31f44ff", format!("score:{}I", max_score))
-    }
+    // if let Some(p) = best_pos {
+    //     // crate::viz::render::debug_position(ctx, &p, "#b31f44ff", format!("score:{}I", max_score))
+    // }
 
     best_pos
 }

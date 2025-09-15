@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, io};
+use std::{collections::HashMap, fs};
 
 use crate::{
     hero::{
@@ -213,12 +213,7 @@ impl Reader for SimReader {
             profiles: vec![],
             entities: vec![],
 
-            map: MapState {
-                height: 1,
-                width: 0,
-                tiles: vec![],
-                scoring: vec![],
-            },
+            map: MapState::new(0, 0, vec![]),
             values: vec![0],
             cursor: 0,
         }

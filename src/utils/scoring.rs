@@ -1,9 +1,9 @@
 use crate::context::GameContext;
 
-pub fn score_defense(ctx: &GameContext) {}
+pub fn score_defense(_ctx: &GameContext) {}
 
-pub fn score_dangerous(ctx: &GameContext) {}
+pub fn score_dangerous(_ctx: &GameContext) {}
 
-pub fn score_shooter(ctx: &GameContext) {}
+pub fn score_shooter(_ctx: &GameContext) {}
 
-pub fn score_bomber(ctx: &GameContext) {}
+pub fn score_bomber(_ctx: &GameContext) {}

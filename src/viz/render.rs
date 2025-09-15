@@ -3,7 +3,26 @@ use macroquad::prelude::*;
 
 pub const BLACK_BG: Color = BLACK;
 
-fn color_convert(s: &'static str) -> Color {
+pub const STATIC_COLORS: [&str; 16] = [
+    "#FF0000", // красный
+    "#00FF00", // зеленый
+    "#0000FF", // синий
+    "#FFFF00", // желтый
+    "#FF00FF", // пурпурный
+    "#00FFFF", // циан
+    "#800000", // темно-красный
+    "#008000", // темно-зеленый
+    "#000080", // темно-синий
+    "#808000", // оливковый
+    "#800080", // фиолетовый
+    "#008080", // бирюзовый
+    "#C0C0C0", // серебристый
+    "#808080", // серый
+    "#FFA500", // оранжевый
+    "#A52A2A", // коричневый
+];
+
+fn color_convert(s: &str) -> Color {
     let s = s.trim_start_matches('#');
     let r = u8::from_str_radix(&s[0..2], 16).unwrap();
     let g = u8::from_str_radix(&s[2..4], 16).unwrap();
@@ -124,7 +143,7 @@ fn draw_tile_text(
     draw_text(text, x, y, font_size, color);
 }
 
-pub fn debug_position(ctx: &GameContext, position: &Position, color: &'static str, meta: String) {
+pub fn debug_position(ctx: &GameContext, position: &Position, color: &str, meta: String) {
     let tile_w: f32 = screen_width() / ctx.map_state.width as f32;
     let tile_h = screen_height() / ctx.map_state.height as f32;
 
@@ -137,5 +156,5 @@ pub fn debug_position(ctx: &GameContext, position: &Position, color: &'static st
 
     draw_rectangle(rec.x, rec.y, tile_w, tile_h, color_convert(color));
 
-    draw_tile_text(meta.as_str(), position, tile_w, tile_h, 20.0, YELLOW);
+    draw_tile_text(meta.as_str(), position, tile_w, tile_h, 20.0, BLACK);
 }

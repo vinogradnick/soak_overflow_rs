@@ -46,22 +46,23 @@ impl Display for Tile {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct TileScore {
-    pub danger: i32,
-    pub safety: i32,
-    pub position: i32,
-}
-
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MapState {
     pub height: usize,
     pub width: usize,
     pub tiles: Vec<Tile>, // плоский массив
-    pub scoring: Vec<TileScore>,
+    pub enemy_scoring: Vec<i32>,
 }
 
 impl MapState {
+    pub fn new(width: usize, height: usize, tiles: Vec<Tile>) -> Self {
+        Self {
+            height,
+            width,
+            tiles,
+            enemy_scoring: vec![],
+        }
+    }
     pub fn neighbors_range(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
         pos.neighbors_range(self.width, self.height)
             .into_iter()
@@ -77,16 +78,10 @@ impl MapState {
     pub fn get_sizes(&self) -> (usize, usize) {
         (self.width, self.height)
     }
-    fn find_nearest_tile(&self, position: &Position, t_type: i32) -> Option<&Tile> {
-        self.tiles
-            .iter()
-            .filter(|h| h.tile_type == t_type)
-            .min_by_key(|h| h.position.dist(position)) // выбираем минимальное расстояние
-    }
 
     #[inline]
     pub fn in_bounds(&self, x: usize, y: usize) -> bool {
-        x >= 0 && y >= 0 && x < self.width && y < self.height
+        x < self.width && y < self.height
     }
 
     pub fn is_in_map(&self, pos: &Position) -> bool {
@@ -152,11 +147,6 @@ impl MapState {
             }
         }
 
-        Self {
-            height,
-            width,
-            tiles,
-            scoring: vec![],
-        }
+        MapState::new(width, height, tiles)
     }
 }

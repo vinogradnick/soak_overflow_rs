@@ -53,12 +53,7 @@ impl Reader for CGReader {
             }
         }
 
-        MapState {
-            height,
-            width,
-            tiles,
-            scoring: vec![],
-        }
+        MapState::new(width, height, tiles)
     }
 
     fn read_profiles(&mut self, owner_id: i32) -> Vec<HeroProfile> {

@@ -63,13 +63,10 @@ impl HeroService {
     pub fn update(&mut self, entity: HeroEntity) {
         self.entities.insert(entity.agent_id, entity);
     }
-    pub fn get_view(&self, agent_id: i32) -> Option<HeroView> {
+    pub fn get_view<'a>(&'a self, agent_id: i32) -> Option<HeroView<'a>> {
         let entity = self.entities.get(&agent_id)?;
         let profile = self.profiles.get(&agent_id)?;
-        Some(HeroView {
-            metadata: profile,
-            entity,
-        })
+        Some(HeroView::new(profile, entity))
     }
     pub fn read_profile<R: Reader>(&mut self, reader: &mut R) {
         let profiles = reader.read_profiles(self.owner_id);

@@ -4,7 +4,7 @@ use crate::{
     position::Position,
     utils::{
         cover::is_hero_icopued,
-        targeting::{find_all_map_bomb_position, find_bomb_target, find_safe_bomb_position},
+        targeting::{find_all_map_bomb_position, find_safe_bomb_position},
     },
 };
 
@@ -30,7 +30,7 @@ impl SaveStrategy {
 }
 
 impl Strategy for SaveStrategy {
-    fn execute(&mut self, ctx: &GameContext, owns: usize) -> Vec<HeroCommand> {
+    fn execute(&mut self, ctx: &GameContext, _owns: usize) -> Vec<HeroCommand> {
         let mut commands = vec![];
 
         for hero in ctx.hero_service.my_list() {
@@ -84,13 +84,5 @@ impl Strategy for SaveStrategy {
         }
 
         return commands;
-    }
-}
-
-pub struct GuideStrategy;
-
-impl Strategy for GuideStrategy {
-    fn execute(&mut self, ctx: &GameContext, owns: usize) -> Vec<HeroCommand> {
-        todo!()
     }
 }
