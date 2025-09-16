@@ -1,38 +1,81 @@
 use std::fmt::{self, Display};
 
-use crate::{position::Position, reader::Reader};
+use crate::{data::position::Position, io::reader::Reader};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TileType {
+    Empty = 0,
+    HighWall = 2,
+    LowWall = 1,
+}
+
+impl From<TileType> for i32 {
+    fn from(value: TileType) -> Self {
+        value as i32
+    }
+}
+
+impl TryFrom<i32> for TileType {
+    type Error = ();
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(TileType::Empty),
+            2 => Ok(TileType::HighWall),
+            1 => Ok(TileType::LowWall),
+            _ => Err(()),
+        }
+    }
+}
+
+impl fmt::Display for TileType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            TileType::Empty => "0",
+            TileType::HighWall => "2",
+            TileType::LowWall => "1",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Occupant {
+    None,
+    OwnerHero(i32), // можно хранить id
+    EnemyHero(i32),
+}
+
+impl Display for Occupant {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Occupant::EnemyHero(v) => write!(f, "EnemyHero({})", v),
+            Occupant::OwnerHero(v) => write!(f, "OwnerHero({})", v),
+            _ => write!(f, ""),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Tile {
     pub position: Position,
-    pub tile_type: i32,
-    pub entity_id: i32,
+    pub tile_type: TileType,
+    pub occupant: Occupant,
 }
 
 impl Tile {
-    pub fn get_cover_int(&self) -> i32 {
-        if self.tile_type != 0 {
-            self.tile_type + 1
-        } else {
-            1
-        }
+    #[inline]
+    pub fn is_walkable(&self) -> bool {
+        !self.is_cover() && !self.is_occupied()
     }
-    pub fn get_cover_value(&self) -> f32 {
-        match self.tile_type {
-            1 => 0.5,
-            2 => 0.7,
-            _ => 0.0,
-        }
-    }
-    pub fn is_free(&self) -> bool {
-        self.tile_type == 0
-    }
+
     pub fn is_occupied(&self) -> bool {
-        self.entity_id != -1
+        self.occupant != Occupant::None
     }
     #[inline]
     pub fn is_cover(&self) -> bool {
-        return self.tile_type == 1 || self.tile_type == 2;
+        return self.tile_type != TileType::Empty;
     }
 }
 
@@ -41,7 +84,7 @@ impl Display for Tile {
         write!(
             f,
             "Tile({}, {}) type={} entity={}",
-            self.position.x, self.position.y, self.tile_type, self.entity_id
+            self.position.x, self.position.y, self.tile_type, self.occupant
         )
     }
 }
@@ -51,7 +94,6 @@ pub struct MapState {
     pub height: usize,
     pub width: usize,
     pub tiles: Vec<Tile>, // плоский массив
-    pub enemy_scoring: Vec<i32>,
 }
 
 impl MapState {
@@ -60,7 +102,6 @@ impl MapState {
             height,
             width,
             tiles,
-            enemy_scoring: vec![],
         }
     }
     pub fn neighbors_range(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
@@ -84,6 +125,11 @@ impl MapState {
         x < self.width && y < self.height
     }
 
+    #[inline]
+    pub fn in_bounds_i32(&self, x: i32, y: i32) -> bool {
+        x >= 0 && x < self.width as i32 && y >= 0 && y < self.height as i32
+    }
+
     pub fn is_in_map(&self, pos: &Position) -> bool {
         self.in_bounds(pos.x, pos.y)
     }
@@ -103,11 +149,11 @@ impl MapState {
         }
     }
 
-    pub fn update_tile(&mut self, x: usize, y: usize, tile_type: i32, entity_id: i32) {
+    pub fn update_tile(&mut self, x: usize, y: usize, tile_type: TileType, occupant: Occupant) {
         if self.in_bounds(x, y) {
             let index = y * self.width + x;
             self.tiles[index].tile_type = tile_type;
-            self.tiles[index].entity_id = entity_id;
+            self.tiles[index].occupant = occupant;
         }
     }
 
@@ -139,10 +185,11 @@ impl MapState {
         for (y, line) in lines.iter().enumerate() {
             for (x, ch) in line.chars().enumerate() {
                 let val = ch.to_digit(10).unwrap() as i32;
+                let tile = TileType::try_from(val).unwrap_or(TileType::Empty);
                 tiles.push(Tile {
                     position: Position { x: x, y: y },
-                    tile_type: val,
-                    entity_id: -1,
+                    tile_type: tile,
+                    occupant: Occupant::None,
                 });
             }
         }

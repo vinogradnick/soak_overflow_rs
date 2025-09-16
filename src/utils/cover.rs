@@ -1,4 +1,4 @@
-use crate::{context::GameContext, hero::hero_entity::HeroEntity, position::Position};
+use crate::{data::context::GameContext, data::position::Position, hero::hero_entity::HeroEntity};
 
 pub fn find_cover_tile<'a>(ctx: &'a GameContext<'a>, hero: &'a HeroEntity) -> Option<Position> {
     let mut nearby_covers: Vec<_> = ctx
@@ -11,7 +11,7 @@ pub fn find_cover_tile<'a>(ctx: &'a GameContext<'a>, hero: &'a HeroEntity) -> Op
         })
         .collect();
 
-    nearby_covers.sort_by_key(|(dist, tile)| *dist / tile.get_cover_int());
+    nearby_covers.sort_by_key(|(dist, tile)| *dist / tile.tile_type as i32);
 
     for (_, tile) in &nearby_covers {
         let mut dx = 0;
@@ -31,32 +31,4 @@ pub fn find_cover_tile<'a>(ctx: &'a GameContext<'a>, hero: &'a HeroEntity) -> Op
     }
 
     None
-}
-
-pub fn is_covered_hero(ctx: &GameContext, hero_position: &Position) -> bool {
-    ctx.map_state
-        .neighbors(hero_position)
-        .any(|tile| tile.is_cover())
-}
-
-pub fn get_hero_cover_quality<'a>(ctx: &'a GameContext<'a>, hero_position: &'a Position) -> i32 {
-    let mut value = 0;
-    for tile in ctx.map_state.neighbors(hero_position) {
-        if !tile.is_cover() && !Position::is_linear(&tile.position, hero_position) {
-            continue;
-        }
-        value += tile.get_cover_int();
-    }
-    return value;
-}
-
-pub fn is_hero_icopued(ctx: &GameContext, hero_position: &Position) -> bool {
-    let mut value = 0;
-    for tile in ctx.map_state.neighbors(hero_position) {
-        if tile.tile_type != 3 {
-            continue;
-        }
-        value += tile.get_cover_int();
-    }
-    value > 0
 }

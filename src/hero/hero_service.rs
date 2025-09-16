@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::{
+    data::position::Position,
     hero::{hero_entity::HeroEntity, hero_profile::HeroProfile, hero_view::HeroView},
-    position::Position,
-    reader::Reader,
+    io::reader::Reader,
 };
 
 pub struct HeroService {
@@ -15,6 +15,14 @@ pub struct HeroService {
 impl HeroService {
     pub fn my_list(&self) -> impl Iterator<Item = &HeroEntity> {
         self.entities.values().filter(|&x| x.is_owner)
+    }
+
+    pub fn get_profile(&self, id: i32) -> Option<&HeroProfile> {
+        self.profiles.get(&id)
+    }
+
+    pub fn get_entity(&self, id: i32) -> Option<&HeroEntity> {
+        self.entities.get(&id)
     }
 
     /// Возвращает врагов, которые находятся в пределах `range` от конкретного героя.
@@ -36,14 +44,10 @@ impl HeroService {
             })
     }
 
-    pub fn enemy_range(
-        &self,
-        position: &Position,
-        range: &i32,
-    ) -> impl Iterator<Item = &HeroEntity> {
+    pub fn near(&self, position: &Position, dist: &i32) -> impl Iterator<Item = &HeroEntity> {
         self.entities
             .values()
-            .filter(|x| !x.is_owner && x.position.dist(position) <= *range)
+            .filter(|x| x.position.dist(position) <= *dist)
     }
 
     pub fn enemy_list(&self) -> impl Iterator<Item = &HeroEntity> {
@@ -68,6 +72,7 @@ impl HeroService {
         let profile = self.profiles.get(&agent_id)?;
         Some(HeroView::new(profile, entity))
     }
+
     pub fn read_profile<R: Reader>(&mut self, reader: &mut R) {
         let profiles = reader.read_profiles(self.owner_id);
         for p in profiles {

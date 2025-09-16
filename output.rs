@@ -1,145 +1,312 @@
-pub mod cg_reader {
-    use crate::{
-        hero::{hero_cmd::HeroCommand, hero_entity::HeroEntity, hero_profile::HeroProfile},
-        map_state::{MapState, Tile},
-        position::Position,
-        reader::{read_value, Reader},
-    };
-    use std::{collections::HashMap, io};
-    pub struct CGReader;
-    impl Reader for CGReader {
-        fn read_i32(&mut self) -> i32 {
-            read_value::<i32>()
+pub mod data {
+    pub mod context {
+        use crate::{data::map_state::MapState, hero::hero_service::HeroService};
+        pub struct GameContext<'a> {
+            pub hero_service: &'a HeroService,
+            pub map_state: &'a MapState,
         }
-        fn new() -> Self {
-            return CGReader;
-        }
-        fn get_count(&mut self) -> usize {
-            read_value::<usize>()
-        }
-        fn step(&mut self, cmd: &HeroCommand) -> Result<(), Box<dyn std::error::Error>> {
-            println!("{}", cmd);
-            Ok(())
-        }
-        fn read_map(&mut self) -> MapState {
-            let mut input_line = String::new();
-            io::stdin().read_line(&mut input_line).unwrap();
-            let inputs = input_line.trim().split_whitespace().collect::<Vec<_>>();
-            let width: usize = inputs[0].parse().unwrap();
-            let height: usize = inputs[1].parse().unwrap();
-            let mut tiles = Vec::with_capacity(width * height);
-            eprintln!("{} {}", width, height);
-            for _ in 0..height {
-                let mut input_line = String::new();
-                io::stdin().read_line(&mut input_line).unwrap();
-                let inputs = input_line.trim().split_whitespace().collect::<Vec<_>>();
-                for j in 0..width {
-                    let x: usize = inputs[3 * j].parse().unwrap();
-                    let y: usize = inputs[3 * j + 1].parse().unwrap();
-                    let tile_type: i32 = inputs[3 * j + 2].parse().unwrap();
-                    tiles.push(Tile {
-                        position: Position::new(x, y),
-                        tile_type,
-                        entity_id: 0,
-                    });
+        impl<'a> GameContext<'a> {
+            pub fn new(hero_service: &'a HeroService, map_state: &'a MapState) -> Self {
+                Self {
+                    hero_service,
+                    map_state,
                 }
             }
-            MapState {
-                height,
-                width,
-                tiles,
-                scoring: vec![],
-            }
         }
-        fn read_profiles(&mut self, owner_id: i32) -> Vec<HeroProfile> {
-            let mut s = String::new();
-            io::stdin().read_line(&mut s).unwrap();
-            let agent_data_count: i32 = s.trim().parse().unwrap();
-            let mut profiles = Vec::new();
-            for _ in 0..agent_data_count {
-                s.clear();
-                io::stdin().read_line(&mut s).unwrap();
-                eprintln!("Profile:{}", &s);
-                let inputs: Vec<_> = s.split_whitespace().collect();
-                let agent_id: i32 = inputs[0].parse().unwrap();
-                let player: i32 = inputs[1].parse().unwrap();
-                let shoot_cooldown: i32 = inputs[2].parse().unwrap();
-                let optimal_range: i32 = inputs[3].parse().unwrap();
-                let soaking_power: i32 = inputs[4].parse().unwrap();
-                let splash_bombs: i32 = inputs[5].parse().unwrap();
-                profiles.push(HeroProfile {
-                    is_owner: owner_id == player,
-                    agent_id,
-                    player,
-                    shoot_cooldown,
-                    optimal_range,
-                    soaking_power,
-                    splash_bombs,
-                });
-            }
-            profiles
+        pub struct GameContextMut<'a> {
+            pub hero_service: &'a mut HeroService,
+            pub map_state: &'a mut MapState,
         }
-        fn read_entities(&mut self, profiles: &HashMap<i32, HeroProfile>) -> Vec<HeroEntity> {
-            let mut s = String::new();
-            io::stdin().read_line(&mut s).unwrap();
-            let agent_count: i32 = s.trim().parse().unwrap();
-            let mut entities = Vec::new();
-            for _ in 0..agent_count {
-                s.clear();
-                io::stdin().read_line(&mut s).unwrap();
-                eprintln!("{}", &s);
-                let inputs: Vec<_> = s.split_whitespace().collect();
-                let agent_id: i32 = inputs[0].parse().unwrap();
-                let x: usize = inputs[1].parse().unwrap();
-                let y: usize = inputs[2].parse().unwrap();
-                let cooldown: i32 = inputs[3].parse().unwrap();
-                let splash_bombs: i32 = inputs[4].parse().unwrap();
-                let wetness: i32 = inputs[5].parse().unwrap();
-                if let Some(profile) = profiles.get(&agent_id) {
-                    entities.push(HeroEntity {
-                        position: Position::new(x, y),
-                        is_owner: profile.is_owner,
-                        agent_id,
-                        cooldown,
-                        splash_bombs,
-                        wetness,
-                    });
+        impl<'a> GameContextMut<'a> {
+            pub fn new(hero_service: &'a mut HeroService, map_state: &'a mut MapState) -> Self {
+                Self {
+                    hero_service,
+                    map_state,
                 }
             }
-            entities
         }
     }
-}
-pub mod context {
-    use crate::{hero::hero_service::HeroService, map_state::MapState};
-    pub struct GameContext<'a> {
-        pub hero_service: &'a HeroService,
-        pub map_state: &'a MapState,
-    }
-    impl<'a> GameContext<'a> {
-        pub fn new(hero_service: &'a HeroService, map_state: &'a MapState) -> Self {
-            Self {
-                hero_service,
-                map_state,
+    pub mod map_state {
+        use crate::{data::position::Position, io::reader::Reader};
+        use std::fmt::{self, Display};
+        #[derive(Debug, Clone, Copy)]
+        pub struct Tile {
+            pub position: Position,
+            pub tile_type: i32,
+            pub entity_id: i32,
+        }
+        impl Tile {
+            #[inline]
+            pub fn is_walkable(&self) -> bool {
+                !self.is_cover() && !self.is_occupied()
+            }
+            pub fn get_cover_int(&self) -> i32 {
+                self.tile_type
+            }
+            pub fn get_cover_value(&self) -> f32 {
+                match self.tile_type {
+                    1 => 0.5,
+                    2 => 0.7,
+                    _ => 0.0,
+                }
+            }
+            pub fn is_free(&self) -> bool {
+                self.tile_type == 0
+            }
+            pub fn is_occupied(&self) -> bool {
+                self.entity_id != -1
+            }
+            #[inline]
+            pub fn is_cover(&self) -> bool {
+                return self.tile_type == 1 || self.tile_type == 2;
+            }
+        }
+        impl Display for Tile {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(
+                    f,
+                    "Tile({}, {}) type={} entity={}",
+                    self.position.x, self.position.y, self.tile_type, self.entity_id
+                )
+            }
+        }
+        #[derive(Debug, Default)]
+        pub struct MapState {
+            pub height: usize,
+            pub width: usize,
+            pub tiles: Vec<Tile>,
+            pub enemy_scoring: Vec<i32>,
+        }
+        impl MapState {
+            pub fn new(width: usize, height: usize, tiles: Vec<Tile>) -> Self {
+                Self {
+                    height,
+                    width,
+                    tiles,
+                    enemy_scoring: vec![],
+                }
+            }
+            pub fn neighbors_range(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
+                pos.neighbors_range(self.width, self.height)
+                    .into_iter()
+                    .filter_map(move |p| self.get_tile(p.x, p.y))
+            }
+            pub fn neighbors(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
+                pos.neighbors(self.width, self.height)
+                    .into_iter()
+                    .filter_map(move |p| self.get_tile(p.x, p.y))
+            }
+            pub fn get_sizes(&self) -> (usize, usize) {
+                (self.width, self.height)
+            }
+            #[inline]
+            pub fn in_bounds(&self, x: usize, y: usize) -> bool {
+                x < self.width && y < self.height
+            }
+            #[inline]
+            pub fn in_bounds_i32(&self, x: i32, y: i32) -> bool {
+                x >= 0 && x < self.width as i32 && y >= 0 && y < self.height as i32
+            }
+            pub fn is_in_map(&self, pos: &Position) -> bool {
+                self.in_bounds(pos.x, pos.y)
+            }
+            pub fn from_input<R: Reader>(reader: &mut R) -> Self {
+                reader.read_map()
+            }
+            pub fn print(&self) {
+                for y in 0..self.height {
+                    for x in 0..self.width {
+                        let idx = y * self.width + x;
+                        let tile = &self.tiles[idx];
+                        eprint!("{}", tile.tile_type);
+                    }
+                    eprintln!();
+                }
+            }
+            pub fn update_tile(&mut self, x: usize, y: usize, tile_type: i32, entity_id: i32) {
+                if self.in_bounds(x, y) {
+                    let index = y * self.width + x;
+                    self.tiles[index].tile_type = tile_type;
+                    self.tiles[index].entity_id = entity_id;
+                }
+            }
+            pub fn get_tile(&self, x: usize, y: usize) -> Option<&Tile> {
+                if self.in_bounds(x, y) {
+                    let index = y * self.width + x;
+                    self.tiles.get(index)
+                } else {
+                    None
+                }
+            }
+            pub fn get_tile_mut(&mut self, x: usize, y: usize) -> Option<&mut Tile> {
+                if self.in_bounds(x, y) {
+                    let index = y * self.width + x;
+                    self.tiles.get_mut(index)
+                } else {
+                    None
+                }
+            }
+            pub fn from_str(s: &str) -> Self {
+                let lines: Vec<&str> = s.lines().collect();
+                let height = lines.len();
+                let width = lines[0].len();
+                let mut tiles = Vec::with_capacity(height * width);
+                for (y, line) in lines.iter().enumerate() {
+                    for (x, ch) in line.chars().enumerate() {
+                        let val = ch.to_digit(10).unwrap() as i32;
+                        tiles.push(Tile {
+                            position: Position { x: x, y: y },
+                            tile_type: val,
+                            entity_id: -1,
+                        });
+                    }
+                }
+                MapState::new(width, height, tiles)
             }
         }
     }
-    pub struct GameContextMut<'a> {
-        pub hero_service: &'a mut HeroService,
-        pub map_state: &'a mut MapState,
-    }
-    impl<'a> GameContextMut<'a> {
-        pub fn new(hero_service: &'a mut HeroService, map_state: &'a mut MapState) -> Self {
-            Self {
-                hero_service,
-                map_state,
+    pub mod position {
+        use std::{fmt::Display, ops::Add};
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct Position {
+            pub x: usize,
+            pub y: usize,
+        }
+        impl Add for Position {
+            type Output = Position;
+            fn add(self, other: Position) -> Position {
+                Position {
+                    x: self.x + other.x,
+                    y: self.y + other.y,
+                }
+            }
+        }
+        impl Add<(usize, usize)> for Position {
+            type Output = Position;
+            fn add(self, other: (usize, usize)) -> Position {
+                Position {
+                    x: self.x + other.0,
+                    y: self.y + other.1,
+                }
+            }
+        }
+        impl From<(i32, i32)> for Position {
+            fn from(value: (i32, i32)) -> Self {
+                Position {
+                    x: value.0 as usize,
+                    y: value.1 as usize,
+                }
+            }
+        }
+        impl Position {
+            pub const WAYPOINTS: [(i32, i32); 8] = Position::generate_directions();
+            const fn generate_directions() -> [(i32, i32); 8] {
+                let mut dirs = [(0, 0); 8];
+                let mut i = 0;
+                let mut dx = -1;
+                while dx <= 1 {
+                    let mut dy = -1;
+                    while dy <= 1 {
+                        if dx != 0 || dy != 0 {
+                            dirs[i] = (dx, dy);
+                            i += 1;
+                        }
+                        dy += 1;
+                    }
+                    dx += 1;
+                }
+                dirs
+            }
+            pub const DIRECTIONS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+            pub fn neighbors_range(&self, width: usize, height: usize) -> Vec<Position> {
+                let mut result = Vec::new();
+                let x = self.x as isize;
+                let y = self.y as isize;
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        let nx = x + dx;
+                        let ny = y + dy;
+                        if nx >= 0 && nx < width as isize && ny >= 0 && ny < height as isize {
+                            result.push(Position {
+                                x: nx as usize,
+                                y: ny as usize,
+                            });
+                        }
+                    }
+                }
+                result
+            }
+            pub fn neighbors(&self, width: usize, height: usize) -> Vec<Position> {
+                let x = self.x;
+                let y = self.y;
+                Self::DIRECTIONS
+                    .iter()
+                    .filter_map(|(dx, dy)| {
+                        let nx = if *dx >= 0 {
+                            x.checked_add(*dx as usize)
+                        } else {
+                            x.checked_sub((-dx) as usize)
+                        };
+                        let ny = if *dy >= 0 {
+                            y.checked_add(*dy as usize)
+                        } else {
+                            y.checked_sub((-dy) as usize)
+                        };
+                        match (nx, ny) {
+                            (Some(nx), Some(ny)) if nx < width && ny < height => {
+                                Some(Position { x: nx, y: ny })
+                            }
+                            _ => None,
+                        }
+                    })
+                    .collect()
+            }
+            pub fn new_tuple((x, y): (i32, i32)) -> Self {
+                Self {
+                    x: x as usize,
+                    y: y as usize,
+                }
+            }
+            pub fn new(x: usize, y: usize) -> Self {
+                Self { x, y }
+            }
+            pub fn dist_raw(&self, x: usize, y: usize) -> i32 {
+                (self.x as i32 - x as i32).abs() + (self.y as i32 - y as i32).abs()
+            }
+            pub fn dist(&self, other: &Position) -> i32 {
+                (self.x as i32 - other.x as i32).abs() + (self.y as i32 - other.y as i32).abs()
+            }
+            pub fn dir(&self, other: &Position) -> (i32, i32) {
+                (
+                    other.x as i32 - self.x as i32,
+                    other.y as i32 - self.y as i32,
+                )
+            }
+            pub fn in_radius(&self, other: &Position, radius: usize) -> bool {
+                let dx = (self.x as isize - other.x as isize).abs();
+                let dy = (self.y as isize - other.y as isize).abs();
+                dx as usize <= radius && dy as usize <= radius
+            }
+            pub fn direction(lhs: &Position, rhs: &Position) -> Position {
+                Position::new(rhs.x - lhs.x, rhs.y - lhs.y)
+            }
+            pub fn is_linear(lhs: &Position, rhs: &Position) -> bool {
+                lhs.x == rhs.x || lhs.y == rhs.y
+            }
+        }
+        impl Display for Position {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{} {}", self.x, self.y)
             }
         }
     }
 }
 pub mod hero {
     pub mod hero_cmd {
-        use crate::position::Position;
+        use crate::data::position::Position;
         use std::fmt;
         #[derive(Debug, Clone)]
         pub enum HeroAction {
@@ -168,7 +335,7 @@ pub mod hero {
         }
     }
     pub mod hero_entity {
-        use crate::position::Position;
+        use crate::data::position::Position;
         #[derive(Debug, Clone, Copy)]
         pub struct HeroEntity {
             pub position: Position,
@@ -206,7 +373,7 @@ pub mod hero {
     pub mod hero_service {
         use crate::{
             hero::{hero_entity::HeroEntity, hero_profile::HeroProfile, hero_view::HeroView},
-            reader::Reader,
+            io::reader::Reader,
         };
         use std::collections::HashMap;
         pub struct HeroService {
@@ -217,6 +384,12 @@ pub mod hero {
         impl HeroService {
             pub fn my_list(&self) -> impl Iterator<Item = &HeroEntity> {
                 self.entities.values().filter(|&x| x.is_owner)
+            }
+            pub fn get_profile(&self, id: i32) -> Option<&HeroProfile> {
+                self.profiles.get(&id)
+            }
+            pub fn get_entity(&self, id: i32) -> Option<&HeroEntity> {
+                self.entities.get(&id)
             }
             #[doc = " Возвращает врагов, которые находятся в пределах `range` от конкретного героя."]
             pub fn nearby_enemies<'a>(
@@ -251,13 +424,10 @@ pub mod hero {
             pub fn update(&mut self, entity: HeroEntity) {
                 self.entities.insert(entity.agent_id, entity);
             }
-            pub fn get_view(&self, agent_id: i32) -> Option<HeroView> {
+            pub fn get_view<'a>(&'a self, agent_id: i32) -> Option<HeroView<'a>> {
                 let entity = self.entities.get(&agent_id)?;
                 let profile = self.profiles.get(&agent_id)?;
-                Some(HeroView {
-                    metadata: profile,
-                    entity,
-                })
+                Some(HeroView::new(profile, entity))
             }
             pub fn read_profile<R: Reader>(&mut self, reader: &mut R) {
                 let profiles = reader.read_profiles(self.owner_id);
@@ -295,510 +465,390 @@ pub mod hero {
         }
     }
 }
-pub mod map_state {
-    use crate::{position::Position, reader::Reader};
-    use std::fmt::{self, Display};
-    #[derive(Debug, Clone, Copy)]
-    pub struct Tile {
-        pub position: Position,
-        pub tile_type: i32,
-        pub entity_id: i32,
-    }
-    impl Tile {
-        pub fn get_cover_int(&self) -> i32 {
-            if self.tile_type != 0 {
-                self.tile_type + 1
-            } else {
-                1
+pub mod io {
+    pub mod cg_reader {
+        use crate::{
+            data::{
+                map_state::{MapState, Tile},
+                position::Position,
+            },
+            hero::{hero_cmd::HeroCommand, hero_entity::HeroEntity, hero_profile::HeroProfile},
+            io::reader::{read_value, Reader},
+        };
+        use std::{collections::HashMap, io};
+        pub struct CGReader {
+            verbose: bool,
+        }
+        impl Reader for CGReader {
+            fn read_i32(&mut self) -> i32 {
+                read_value::<i32>()
             }
-        }
-        pub fn get_cover_value(&self) -> f32 {
-            match self.tile_type {
-                1 => 0.5,
-                2 => 0.7,
-                _ => 0.0,
+            fn new(verbose: bool) -> Self {
+                return Self { verbose };
             }
-        }
-        pub fn is_free(&self) -> bool {
-            self.tile_type == 0
-        }
-        pub fn is_occupied(&self) -> bool {
-            self.entity_id != -1
-        }
-        #[inline]
-        pub fn is_cover(&self) -> bool {
-            return self.tile_type == 1 || self.tile_type == 2;
-        }
-    }
-    impl Display for Tile {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(
-                f,
-                "Tile({}, {}) type={} entity={}",
-                self.position.x, self.position.y, self.tile_type, self.entity_id
-            )
-        }
-    }
-    #[derive(Debug, Default, Clone, Copy)]
-    pub struct TileScore {
-        pub danger: i32,
-        pub safety: i32,
-        pub position: i32,
-    }
-    #[derive(Debug)]
-    pub struct MapState {
-        pub height: usize,
-        pub width: usize,
-        pub tiles: Vec<Tile>,
-        pub scoring: Vec<TileScore>,
-    }
-    impl MapState {
-        pub fn neighbors_range(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
-            pos.neighbors_range(self.width, self.height)
-                .into_iter()
-                .filter_map(move |p| self.get_tile(p.x, p.y))
-        }
-        pub fn neighbors(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
-            pos.neighbors(self.width, self.height)
-                .into_iter()
-                .filter_map(move |p| self.get_tile(p.x, p.y))
-        }
-        pub fn get_sizes(&self) -> (usize, usize) {
-            (self.width, self.height)
-        }
-        fn find_nearest_tile(&self, position: &Position, t_type: i32) -> Option<&Tile> {
-            self.tiles
-                .iter()
-                .filter(|h| h.tile_type == t_type)
-                .min_by_key(|h| h.position.dist(position))
-        }
-        #[inline]
-        pub fn in_bounds(&self, x: usize, y: usize) -> bool {
-            x >= 0 && y >= 0 && x < self.width && y < self.height
-        }
-        pub fn is_in_map(&self, pos: &Position) -> bool {
-            self.in_bounds(pos.x, pos.y)
-        }
-        pub fn from_input<R: Reader>(reader: &mut R) -> Self {
-            reader.read_map()
-        }
-        pub fn print(&self) {
-            for y in 0..self.height {
-                for x in 0..self.width {
-                    let idx = y * self.width + x;
-                    let tile = &self.tiles[idx];
-                    eprint!("{}", tile.tile_type);
-                }
-                eprintln!();
+            fn get_count(&mut self) -> usize {
+                read_value::<usize>()
             }
-        }
-        pub fn update_tile(&mut self, x: usize, y: usize, tile_type: i32, entity_id: i32) {
-            if self.in_bounds(x, y) {
-                let index = y * self.width + x;
-                self.tiles[index].tile_type = tile_type;
-                self.tiles[index].entity_id = entity_id;
+            fn step(&mut self, cmd: &HeroCommand) -> Result<(), Box<dyn std::error::Error>> {
+                println!("{}", cmd);
+                Ok(())
             }
-        }
-        pub fn get_tile(&self, x: usize, y: usize) -> Option<&Tile> {
-            if self.in_bounds(x, y) {
-                let index = y * self.width + x;
-                self.tiles.get(index)
-            } else {
-                None
-            }
-        }
-        pub fn get_tile_mut(&mut self, x: usize, y: usize) -> Option<&mut Tile> {
-            if self.in_bounds(x, y) {
-                let index = y * self.width + x;
-                self.tiles.get_mut(index)
-            } else {
-                None
-            }
-        }
-        pub fn from_str(s: &str) -> Self {
-            let lines: Vec<&str> = s.lines().collect();
-            let height = lines.len();
-            let width = lines[0].len();
-            let mut tiles = Vec::with_capacity(height * width);
-            for (y, line) in lines.iter().enumerate() {
-                for (x, ch) in line.chars().enumerate() {
-                    let val = ch.to_digit(10).unwrap() as i32;
-                    tiles.push(Tile {
-                        position: Position { x: x, y: y },
-                        tile_type: val,
-                        entity_id: -1,
-                    });
-                }
-            }
-            Self {
-                height,
-                width,
-                tiles,
-                scoring: vec![],
-            }
-        }
-    }
-}
-mod position {
-    use std::{fmt::Display, ops::Add};
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub struct Position {
-        pub x: usize,
-        pub y: usize,
-    }
-    impl Add for Position {
-        type Output = Position;
-        fn add(self, other: Position) -> Position {
-            Position {
-                x: self.x + other.x,
-                y: self.y + other.y,
-            }
-        }
-    }
-    impl Add<(usize, usize)> for Position {
-        type Output = Position;
-        fn add(self, other: (usize, usize)) -> Position {
-            Position {
-                x: self.x + other.0,
-                y: self.y + other.1,
-            }
-        }
-    }
-    impl Position {
-        pub const DIRECTIONS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
-        pub fn neighbors_range(&self, width: usize, height: usize) -> Vec<Position> {
-            let mut result = Vec::new();
-            let x = self.x as isize;
-            let y = self.y as isize;
-            for dy in -1..=1 {
-                for dx in -1..=1 {
-                    if dx == 0 && dy == 0 {
-                        continue;
-                    }
-                    let nx = x + dx;
-                    let ny = y + dy;
-                    if nx >= 0 && nx < width as isize && ny >= 0 && ny < height as isize {
-                        result.push(Position {
-                            x: nx as usize,
-                            y: ny as usize,
+            fn read_map(&mut self) -> MapState {
+                let mut input_line = String::new();
+                io::stdin().read_line(&mut input_line).unwrap();
+                let inputs = input_line.trim().split_whitespace().collect::<Vec<_>>();
+                let width: usize = inputs[0].parse().unwrap();
+                let height: usize = inputs[1].parse().unwrap();
+                let mut tiles = Vec::with_capacity(width * height);
+                eprintln!("{} {}", width, height);
+                for _ in 0..height {
+                    let mut input_line = String::new();
+                    io::stdin().read_line(&mut input_line).unwrap();
+                    let inputs = input_line.trim().split_whitespace().collect::<Vec<_>>();
+                    eprintln!("{}", input_line);
+                    for j in 0..width {
+                        let x: usize = inputs[3 * j].parse().unwrap();
+                        let y: usize = inputs[3 * j + 1].parse().unwrap();
+                        let tile_type: i32 = inputs[3 * j + 2].parse().unwrap();
+                        tiles.push(Tile {
+                            position: Position::new(x, y),
+                            tile_type,
+                            entity_id: 0,
                         });
                     }
                 }
+                MapState::new(width, height, tiles)
             }
-            result
-        }
-        pub fn neighbors(&self, width: usize, height: usize) -> Vec<Position> {
-            let x = self.x;
-            let y = self.y;
-            Self::DIRECTIONS
-                .iter()
-                .filter_map(|(dx, dy)| {
-                    let nx = if *dx >= 0 {
-                        x.checked_add(*dx as usize)
-                    } else {
-                        x.checked_sub((-dx) as usize)
-                    };
-                    let ny = if *dy >= 0 {
-                        y.checked_add(*dy as usize)
-                    } else {
-                        y.checked_sub((-dy) as usize)
-                    };
-                    match (nx, ny) {
-                        (Some(nx), Some(ny)) if nx < width && ny < height => {
-                            Some(Position { x: nx, y: ny })
-                        }
-                        _ => None,
-                    }
-                })
-                .collect()
-        }
-        pub fn new(x: usize, y: usize) -> Self {
-            Self { x, y }
-        }
-        pub fn dist_raw(&self, x: usize, y: usize) -> i32 {
-            (self.x as i32 - x as i32).abs() + (self.y as i32 - y as i32).abs()
-        }
-        pub fn dist(&self, other: &Position) -> i32 {
-            (self.x as i32 - other.x as i32).abs() + (self.y as i32 - other.y as i32).abs()
-        }
-        pub fn dir(&self, other: &Position) -> (i32, i32) {
-            (
-                other.x as i32 - self.x as i32,
-                other.y as i32 - self.y as i32,
-            )
-        }
-        pub fn in_radius(&self, other: &Position, radius: usize) -> bool {
-            let dx = (self.x as isize - other.x as isize).abs();
-            let dy = (self.y as isize - other.y as isize).abs();
-            dx as usize <= radius && dy as usize <= radius
-        }
-        pub fn direction(lhs: &Position, rhs: &Position) -> Position {
-            Position::new(rhs.x - lhs.x, rhs.y - lhs.y)
-        }
-        pub fn is_linear(lhs: &Position, rhs: &Position) -> bool {
-            lhs.x == rhs.x || lhs.y == rhs.y
-        }
-    }
-    impl Display for Position {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{} {}", self.x, self.y)
-        }
-    }
-}
-pub mod reader {
-    use crate::{
-        hero::{hero_cmd::HeroCommand, hero_entity::HeroEntity, hero_profile::HeroProfile},
-        map_state::MapState,
-    };
-    use std::collections::HashMap;
-    pub fn read_value<T: std::str::FromStr>() -> T {
-        let mut input_line = String::new();
-        std::io::stdin().read_line(&mut input_line).unwrap();
-        input_line.trim().parse::<T>().ok().unwrap()
-    }
-    pub trait Reader {
-        fn read_i32(&mut self) -> i32;
-        fn new() -> Self;
-        fn get_count(&mut self) -> usize;
-        fn step(&mut self, cmd: &HeroCommand) -> Result<(), Box<dyn std::error::Error>>;
-        fn read_map(&mut self) -> MapState;
-        fn read_profiles(&mut self, owner_id: i32) -> Vec<HeroProfile>;
-        fn read_entities(&mut self, profiles: &HashMap<i32, HeroProfile>) -> Vec<HeroEntity>;
-    }
-}
-pub mod sim_reader {
-    use crate::{
-        hero::{
-            hero_cmd::{HeroAction, HeroCommand},
-            hero_entity::HeroEntity,
-            hero_profile::HeroProfile,
-        },
-        map_state::MapState,
-        position::Position,
-        reader::Reader,
-    };
-    use std::{collections::HashMap, fs, io};
-    pub struct SimReader {
-        values: Vec<i32>,
-        profiles: Vec<HeroProfile>,
-        entities: Vec<HeroEntity>,
-        map: MapState,
-        cursor: usize,
-    }
-    impl SimReader {
-        fn apply_hero_commands(
-            &mut self,
-            cmd: &HeroCommand,
-        ) -> Result<(), Box<dyn std::error::Error>> {
-            for action in &cmd.1 {
-                self.apply_action(cmd.0, action)?;
-            }
-            self.evaluate()?;
-            Ok(())
-        }
-        fn apply_action(
-            &mut self,
-            id: i32,
-            action: &HeroAction,
-        ) -> Result<(), Box<dyn std::error::Error>> {
-            let idx = self
-                .entities
-                .iter()
-                .position(|e| e.agent_id == id)
-                .ok_or_else(|| format!("Entity with id {} not found", id))?;
-            match action {
-                HeroAction::Move(pos) => self.move_entity(idx, *pos),
-                HeroAction::Shoot(target_id) => self.shoot_entity(idx, *target_id),
-                HeroAction::Wait => self.wait_entity(idx),
-                HeroAction::Throw(position) => self.throw_entities(position.clone()),
-            }
-        }
-        fn evaluate(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-            self.entities.retain(|x| x.wetness <= 200);
-            Ok(())
-        }
-        fn throw_entities(&mut self, pos: Position) -> Result<(), Box<dyn std::error::Error>> {
-            let radius = 1;
-            for e in self.entities.iter_mut().filter(|e| {
-                let dx = e.position.x as i32 - pos.x as i32;
-                let dy = e.position.y as i32 - pos.y as i32;
-                dx.abs() <= radius && dy.abs() <= radius
-            }) {
-                e.wetness = 999;
-            }
-            Ok(())
-        }
-        fn move_entity(
-            &mut self,
-            idx: usize,
-            pos: Position,
-        ) -> Result<(), Box<dyn std::error::Error>> {
-            let entity = &mut self.entities[idx];
-            if let Some(tile) = self.map.get_tile_mut(pos.x as usize, pos.y as usize) {
-                if !tile.is_occupied() {
-                    tile.entity_id = entity.agent_id;
-                    entity.position = pos;
-                    eprintln!("Entity {} moved to {}", entity.agent_id, pos);
-                } else {
-                    eprintln!("Tile at {} is occupied", pos);
-                }
-            } else {
-                eprintln!("Invalid position {}", pos);
-            }
-            Ok(())
-        }
-        fn shoot_entity(
-            &mut self,
-            shooter_idx: usize,
-            target_id: i32,
-        ) -> Result<(), Box<dyn std::error::Error>> {
-            let shooter = self.entities[shooter_idx];
-            if let Some(target) = self.entities.iter_mut().find(|e| e.agent_id == target_id) {
-                target.wetness += 6;
-                eprintln!(
-                    "Entity {} shot Entity {}",
-                    shooter.agent_id, target.agent_id
-                );
-            } else {
-                eprintln!("Cannot shoot Entity {}", target_id);
-            }
-            Ok(())
-        }
-        fn wait_entity(&self, idx: usize) -> Result<(), Box<dyn std::error::Error>> {
-            let entity = &self.entities[idx];
-            println!("Entity {} waits", entity.agent_id);
-            Ok(())
-        }
-    }
-    impl Reader for SimReader {
-        fn read_i32(&mut self) -> i32 {
-            let v = self.values[self.cursor];
-            self.cursor += 1;
-            return v;
-        }
-        fn get_count(&mut self) -> usize {
-            2
-        }
-        fn step(&mut self, cmd: &HeroCommand) -> Result<(), Box<dyn std::error::Error>> {
-            self.apply_hero_commands(cmd)?;
-            Ok(())
-        }
-        fn read_map(&mut self) -> MapState {
-            let map_container = fs::read_to_string("./data_source/map.txt").unwrap();
-            self.map = MapState::from_str(&map_container);
-            MapState::from_str(&map_container)
-        }
-        fn read_profiles(&mut self, _owner_id: i32) -> Vec<HeroProfile> {
-            let profiles = fs::read_to_string("./data_source/profile.txt").unwrap();
-            for line in profiles.lines() {
-                let line = line.strip_prefix("Profile:").unwrap_or(line);
-                let inputs: Vec<i32> = line
-                    .split_whitespace()
-                    .map(|s| s.parse::<i32>().unwrap())
-                    .collect();
-                if inputs.len() != 6 {
-                    continue;
-                }
-                let agent_id = inputs[0];
-                let player = inputs[1];
-                let shoot_cooldown = inputs[2];
-                let optimal_range = inputs[3];
-                let soaking_power = inputs[4];
-                let splash_bombs = inputs[5];
-                self.profiles.push(HeroProfile {
-                    is_owner: _owner_id == player,
-                    agent_id,
-                    player,
-                    shoot_cooldown,
-                    optimal_range,
-                    soaking_power,
-                    splash_bombs,
-                });
-            }
-            self.profiles.clone()
-        }
-        fn read_entities(&mut self, _profiles: &HashMap<i32, HeroProfile>) -> Vec<HeroEntity> {
-            if !self.entities.is_empty() {
-                return self.entities.clone();
-            }
-            let entities = fs::read_to_string("./data_source/entities.txt").unwrap();
-            for line in entities.lines() {
-                let inputs: Vec<i32> = line
-                    .split_whitespace()
-                    .map(|s| s.parse::<i32>().unwrap())
-                    .collect();
-                if inputs.len() < 6 {
-                    continue;
-                }
-                let agent_id = inputs[0];
-                let x = inputs[1] as usize;
-                let y = inputs[2] as usize;
-                let cooldown = inputs[3];
-                let splash_bombs = inputs[4];
-                let wetness = inputs[5];
-                if let Some(profile) = _profiles.get(&agent_id) {
-                    self.entities.push(HeroEntity {
-                        position: Position::new(x, y),
-                        is_owner: profile.is_owner,
+            fn read_profiles(&mut self, owner_id: i32) -> Vec<HeroProfile> {
+                let mut s = String::new();
+                io::stdin().read_line(&mut s).unwrap();
+                let agent_data_count: i32 = s.trim().parse().unwrap();
+                eprintln!("{}", agent_data_count);
+                let mut profiles = Vec::new();
+                for _ in 0..agent_data_count {
+                    s.clear();
+                    io::stdin().read_line(&mut s).unwrap();
+                    eprintln!("{}", &s);
+                    let inputs: Vec<_> = s.split_whitespace().collect();
+                    let agent_id: i32 = inputs[0].parse().unwrap();
+                    let player: i32 = inputs[1].parse().unwrap();
+                    let shoot_cooldown: i32 = inputs[2].parse().unwrap();
+                    let optimal_range: i32 = inputs[3].parse().unwrap();
+                    let soaking_power: i32 = inputs[4].parse().unwrap();
+                    let splash_bombs: i32 = inputs[5].parse().unwrap();
+                    profiles.push(HeroProfile {
+                        is_owner: owner_id == player,
                         agent_id,
-                        cooldown,
+                        player,
+                        shoot_cooldown,
+                        optimal_range,
+                        soaking_power,
                         splash_bombs,
-                        wetness,
                     });
                 }
+                profiles
             }
-            self.entities.clone()
+            fn read_entities(&mut self, profiles: &HashMap<i32, HeroProfile>) -> Vec<HeroEntity> {
+                let mut s = String::new();
+                io::stdin().read_line(&mut s).unwrap();
+                let agent_count: i32 = s.trim().parse().unwrap();
+                eprintln!("{}", agent_count);
+                let mut entities = Vec::new();
+                for _ in 0..agent_count {
+                    s.clear();
+                    io::stdin().read_line(&mut s).unwrap();
+                    eprintln!("{}", &s);
+                    let inputs: Vec<_> = s.split_whitespace().collect();
+                    let agent_id: i32 = inputs[0].parse().unwrap();
+                    let x: usize = inputs[1].parse().unwrap();
+                    let y: usize = inputs[2].parse().unwrap();
+                    let cooldown: i32 = inputs[3].parse().unwrap();
+                    let splash_bombs: i32 = inputs[4].parse().unwrap();
+                    let wetness: i32 = inputs[5].parse().unwrap();
+                    if let Some(profile) = profiles.get(&agent_id) {
+                        entities.push(HeroEntity {
+                            position: Position::new(x, y),
+                            is_owner: profile.is_owner,
+                            agent_id,
+                            cooldown,
+                            splash_bombs,
+                            wetness,
+                        });
+                    }
+                }
+                entities
+            }
         }
-        fn new() -> Self {
-            Self {
-                profiles: vec![],
-                entities: vec![],
-                map: MapState {
-                    height: 1,
-                    width: 0,
-                    tiles: vec![],
-                    scoring: vec![],
-                },
-                values: vec![0],
-                cursor: 0,
+    }
+    pub mod reader {
+        use crate::{
+            data::map_state::MapState,
+            hero::{hero_cmd::HeroCommand, hero_entity::HeroEntity, hero_profile::HeroProfile},
+        };
+        use std::collections::HashMap;
+        pub fn read_value<T: std::str::FromStr>() -> T {
+            let mut input_line = String::new();
+            std::io::stdin().read_line(&mut input_line).unwrap();
+            input_line.trim().parse::<T>().ok().unwrap()
+        }
+        pub trait Reader {
+            fn read_i32(&mut self) -> i32;
+            fn new(verbose: bool) -> Self;
+            fn get_count(&mut self) -> usize;
+            fn step(&mut self, cmd: &HeroCommand) -> Result<(), Box<dyn std::error::Error>>;
+            fn read_map(&mut self) -> MapState;
+            fn read_profiles(&mut self, owner_id: i32) -> Vec<HeroProfile>;
+            fn read_entities(&mut self, profiles: &HashMap<i32, HeroProfile>) -> Vec<HeroEntity>;
+        }
+    }
+    pub mod sim_reader {
+        use crate::{
+            data::{
+                map_state::{MapState, Tile},
+                position::Position,
+            },
+            hero::{
+                hero_cmd::{HeroAction, HeroCommand},
+                hero_entity::HeroEntity,
+                hero_profile::HeroProfile,
+            },
+            io::reader::Reader,
+        };
+        use std::{
+            collections::HashMap,
+            fs::{self},
+        };
+        pub struct SimReader {
+            profiles: Vec<HeroProfile>,
+            entities: Vec<HeroEntity>,
+            map: MapState,
+            raw_data: Vec<String>,
+            raw_cursor: usize,
+            readed_entity: bool,
+        }
+        impl SimReader {
+            fn read_line(&mut self) -> String {
+                let item = self.raw_data[self.raw_cursor].clone();
+                self.raw_cursor += 1;
+                return item;
+            }
+            fn apply_hero_commands(
+                &mut self,
+                cmd: &HeroCommand,
+            ) -> Result<(), Box<dyn std::error::Error>> {
+                for action in &cmd.1 {
+                    self.apply_action(cmd.0, action)?;
+                }
+                self.evaluate()?;
+                Ok(())
+            }
+            fn apply_action(
+                &mut self,
+                id: i32,
+                action: &HeroAction,
+            ) -> Result<(), Box<dyn std::error::Error>> {
+                let idx = self
+                    .entities
+                    .iter()
+                    .position(|e| e.agent_id == id)
+                    .ok_or_else(|| format!("Entity with id {} not found", id))?;
+                match action {
+                    HeroAction::Move(pos) => self.move_entity(idx, *pos),
+                    HeroAction::Shoot(target_id) => self.shoot_entity(idx, *target_id),
+                    HeroAction::Wait => self.wait_entity(idx),
+                    HeroAction::Throw(position) => self.throw_entities(position.clone()),
+                }
+            }
+            fn evaluate(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+                self.entities.retain(|x| x.wetness <= 200);
+                Ok(())
+            }
+            fn throw_entities(&mut self, pos: Position) -> Result<(), Box<dyn std::error::Error>> {
+                let radius = 1;
+                for e in self.entities.iter_mut().filter(|e| {
+                    let dx = e.position.x as i32 - pos.x as i32;
+                    let dy = e.position.y as i32 - pos.y as i32;
+                    dx.abs() <= radius && dy.abs() <= radius
+                }) {
+                    e.wetness = 999;
+                }
+                Ok(())
+            }
+            fn move_entity(
+                &mut self,
+                idx: usize,
+                pos: Position,
+            ) -> Result<(), Box<dyn std::error::Error>> {
+                let entity = &mut self.entities[idx];
+                if let Some(tile) = self.map.get_tile_mut(pos.x as usize, pos.y as usize) {
+                    if !tile.is_occupied() {
+                        tile.entity_id = entity.agent_id;
+                        entity.position = pos;
+                    } else {
+                        return Err(Box::from("Cannot move entity"));
+                    }
+                } else {
+                    eprintln!("[DEBUG]: Invalid position {}", pos);
+                }
+                Ok(())
+            }
+            fn shoot_entity(
+                &mut self,
+                shooter_idx: usize,
+                target_id: i32,
+            ) -> Result<(), Box<dyn std::error::Error>> {
+                let shooter = self.entities[shooter_idx];
+                if let Some(target) = self.entities.iter_mut().find(|e| e.agent_id == target_id) {
+                    target.wetness += 6;
+                    eprintln!(
+                        "Entity {} shot Entity {}",
+                        shooter.agent_id, target.agent_id
+                    );
+                } else {
+                    eprintln!("Cannot shoot Entity {}", target_id);
+                }
+                Ok(())
+            }
+            fn wait_entity(&self, idx: usize) -> Result<(), Box<dyn std::error::Error>> {
+                let entity = &self.entities[idx];
+                println!("Entity {} waits", entity.agent_id);
+                Ok(())
+            }
+        }
+        impl Reader for SimReader {
+            fn get_count(&mut self) -> usize {
+                self.entities.iter().filter(|x| x.is_owner).count()
+            }
+            fn step(&mut self, cmd: &HeroCommand) -> Result<(), Box<dyn std::error::Error>> {
+                Ok(())
+            }
+            fn read_map(&mut self) -> MapState {
+                let input_line = self.read_line();
+                eprintln!("{} ", input_line);
+                let inputs = input_line.trim().split_whitespace().collect::<Vec<_>>();
+                let width: usize = inputs[0].parse().unwrap();
+                let height: usize = inputs[1].parse().unwrap();
+                let mut tiles = Vec::with_capacity(width * height);
+                eprintln!("{} {}", width, height);
+                for _ in 0..height {
+                    let input_line = self.read_line();
+                    let inputs = input_line.trim().split_whitespace().collect::<Vec<_>>();
+                    eprintln!("{}", input_line);
+                    for j in 0..width {
+                        let x: usize = inputs[3 * j].parse().unwrap();
+                        let y: usize = inputs[3 * j + 1].parse().unwrap();
+                        let tile_type: i32 = inputs[3 * j + 2].parse().unwrap();
+                        tiles.push(Tile {
+                            position: Position::new(x, y),
+                            tile_type,
+                            entity_id: -1,
+                        });
+                    }
+                }
+                MapState::new(width, height, tiles)
+            }
+            fn read_profiles(&mut self, owner_id: i32) -> Vec<HeroProfile> {
+                let mut s = self.read_line();
+                let agent_data_count: i32 = s.trim().parse().unwrap();
+                eprintln!("{}", agent_data_count);
+                let mut profiles = Vec::new();
+                for _ in 0..agent_data_count {
+                    s = self.read_line();
+                    eprintln!("{}", &s);
+                    let inputs: Vec<_> = s.split_whitespace().collect();
+                    let agent_id: i32 = inputs[0].parse().unwrap();
+                    let player: i32 = inputs[1].parse().unwrap();
+                    let shoot_cooldown: i32 = inputs[2].parse().unwrap();
+                    let optimal_range: i32 = inputs[3].parse().unwrap();
+                    let soaking_power: i32 = inputs[4].parse().unwrap();
+                    let splash_bombs: i32 = inputs[5].parse().unwrap();
+                    profiles.push(HeroProfile {
+                        is_owner: owner_id == player,
+                        agent_id,
+                        player,
+                        shoot_cooldown,
+                        optimal_range,
+                        soaking_power,
+                        splash_bombs,
+                    });
+                }
+                self.profiles = self.profiles.clone();
+                profiles
+            }
+            fn read_entities(&mut self, profiles: &HashMap<i32, HeroProfile>) -> Vec<HeroEntity> {
+                if self.readed_entity {
+                    return self.entities.clone();
+                }
+                let mut s = self.read_line();
+                let agent_count: i32 = s.trim().parse().unwrap();
+                eprintln!("{}", agent_count);
+                let mut entities = Vec::new();
+                for _ in 0..agent_count {
+                    s = self.read_line();
+                    eprintln!("{}", &s);
+                    let inputs: Vec<_> = s.split_whitespace().collect();
+                    let agent_id: i32 = inputs[0].parse().unwrap();
+                    let x: usize = inputs[1].parse().unwrap();
+                    let y: usize = inputs[2].parse().unwrap();
+                    let cooldown: i32 = inputs[3].parse().unwrap();
+                    let splash_bombs: i32 = inputs[4].parse().unwrap();
+                    let wetness: i32 = inputs[5].parse().unwrap();
+                    if let Some(profile) = profiles.get(&agent_id) {
+                        entities.push(HeroEntity {
+                            position: Position::new(x, y),
+                            is_owner: profile.is_owner,
+                            agent_id,
+                            cooldown,
+                            splash_bombs,
+                            wetness,
+                        });
+                    }
+                }
+                self.readed_entity = true;
+                self.entities = entities.clone();
+                entities
+            }
+            fn new(_verbose: bool) -> Self {
+                Self {
+                    profiles: vec![],
+                    entities: vec![],
+                    raw_data: fs::read_to_string("./mapper.txt")
+                        .unwrap()
+                        .lines()
+                        .map(|x| x.to_string())
+                        .collect(),
+                    map: MapState::new(0, 0, vec![]),
+                    raw_cursor: 0,
+                    readed_entity: false,
+                }
+            }
+            fn read_i32(&mut self) -> i32 {
+                self.read_line().trim().parse::<i32>().ok().unwrap()
             }
         }
     }
 }
-pub mod strategy {
-    use crate::{
-        context::GameContext,
-        hero::hero_cmd::{HeroAction, HeroCommand},
-        position::Position,
-        utils::{
-            cover::is_hero_icopued,
-            targeting::{find_bomb_target, find_safe_bomb_position},
-        },
-    };
-    pub trait Strategy {
-        fn execute(&mut self, ctx: &GameContext, owns: usize) -> Vec<HeroCommand>;
-    }
-    pub struct SaveStrategy {
-        pub cursor: usize,
-    }
-    impl SaveStrategy {
-        pub const WAYPOINTS: [Position; 4] = [
-            Position { x: 5, y: 2 },
-            Position { x: 5, y: 9 },
-            Position { x: 11, y: 9 },
-            Position { x: 11, y: 2 },
-        ];
-        pub fn new() -> Self {
-            return SaveStrategy { cursor: 0 };
+pub mod systems {
+    pub mod strategy {
+        use crate::{
+            data::context::GameContext,
+            hero::hero_cmd::{HeroAction, HeroCommand},
+        };
+        pub trait Strategy {
+            fn execute(&mut self, ctx: &GameContext, owns: usize) -> Vec<HeroCommand>;
         }
-    }
-    impl Strategy for SaveStrategy {
-        fn execute(&mut self, ctx: &GameContext, owns: usize) -> Vec<HeroCommand> {
-            let mut commands = vec![];
-            for hero in ctx.hero_service.my_list() {
-                let mut cmd: Vec<HeroAction> = vec![];
-                if is_hero_icopued(ctx, &hero.position) {
-                    let target = find_safe_bomb_position(ctx, &hero.position);
+        pub struct SaveStrategy;
+        impl SaveStrategy {
+            pub fn new() -> Self {
+                return SaveStrategy {};
+            }
+        }
+        impl Strategy for SaveStrategy {
+            fn execute(&mut self, ctx: &GameContext, _owns: usize) -> Vec<HeroCommand> {
+                let mut commands = vec![];
+                for hero in ctx.hero_service.my_list() {
+                    let mut cmd: Vec<HeroAction> = vec![];
+                    let target = crate::utils::bomb::find_bombing_position(ctx, &hero);
                     if let Some((moving, bomber)) = target {
                         cmd.push(HeroAction::Move(moving));
                         cmd.push(HeroAction::Throw(bomber));
@@ -806,28 +856,85 @@ pub mod strategy {
                     if cmd.len() == 0 {
                         cmd.push(HeroAction::Wait);
                     }
-                } else {
-                    let target = find_safe_bomb_position(ctx, &hero.position);
-                    if let Some((moving, bomber)) = target {
-                        cmd.push(HeroAction::Move(moving));
-                        cmd.push(HeroAction::Throw(bomber));
-                    }
+                    commands.push(HeroCommand(hero.agent_id, cmd));
                 }
-                commands.push(HeroCommand(hero.agent_id, cmd));
+                return commands;
             }
-            return commands;
-        }
-    }
-    pub struct GuideStrategy;
-    impl Strategy for GuideStrategy {
-        fn execute(&mut self, ctx: &GameContext, owns: usize) -> Vec<HeroCommand> {
-            todo!()
         }
     }
 }
 pub mod utils {
+    pub mod bomb {
+        use crate::{
+            data::context::GameContext, data::position::Position, hero::hero_entity::HeroEntity,
+            utils,
+        };
+        const RADIUS: i32 = 2;
+        fn find_enemy_cluster(ctx: &GameContext) -> Option<Position> {
+            let mut best_tile = None;
+            let mut max_count = 0;
+            for y in 0..ctx.map_state.height as i32 {
+                for x in 0..ctx.map_state.width as i32 {
+                    let tile_pos = Position::new_tuple((x, y));
+                    let count = ctx
+                        .hero_service
+                        .enemy_list()
+                        .filter(|en| {
+                            let dist = en.position.dist(&tile_pos);
+                            dist > 0 && dist <= RADIUS
+                        })
+                        .count();
+                    if count > max_count {
+                        max_count = count;
+                        best_tile = Some(tile_pos);
+                    }
+                }
+            }
+            best_tile
+        }
+        pub fn find_bombing_position<'a>(
+            ctx: &'a GameContext,
+            hero: &'a HeroEntity,
+        ) -> Option<(Position, Position)> {
+            for tile in &ctx.map_state.tiles {
+                if tile.is_cover()
+                    || tile.is_occupied()
+                    || !utils::pathfinder::can_reach(ctx, &hero.position, &tile.position)
+                {
+                    continue;
+                }
+                if !ctx.hero_service.enemy_list().any(|en| {
+                    let p = en.position.dist(&tile.position);
+                    return p > 0 && p < 3;
+                }) {
+                    continue;
+                }
+                let p = find_enemy_cluster(ctx);
+                if let Some(t) = p {
+                    if t.dist(&tile.position) <= 3 {
+                        crate::viz::render::debug_position(
+                            ctx,
+                            &tile.position,
+                            "#9722b4ff",
+                            format!("H:{}", hero.agent_id),
+                        );
+                        crate::viz::render::debug_position(
+                            ctx,
+                            &t,
+                            "#9722b4ff",
+                            format!("H:{}", hero.agent_id),
+                        );
+                        return Some((tile.position, t));
+                    }
+                }
+            }
+            None
+        }
+    }
     pub mod cover {
-        use crate::{context::GameContext, hero::hero_entity::HeroEntity, position::Position};
+        use crate::{
+            data::context::GameContext, data::position::Position, hero::hero_entity::HeroEntity,
+        };
         pub fn find_cover_tile<'a>(
             ctx: &'a GameContext<'a>,
             hero: &'a HeroEntity,
@@ -860,177 +967,190 @@ pub mod utils {
             }
             None
         }
-        pub fn is_covered_hero(ctx: &GameContext, hero_position: &Position) -> bool {
-            ctx.map_state
-                .neighbors(hero_position)
-                .any(|tile| tile.is_cover())
-        }
-        pub fn get_hero_cover_quality<'a>(
-            ctx: &'a GameContext<'a>,
-            hero_position: &'a Position,
-        ) -> i32 {
-            let mut value = 0;
-            for tile in ctx.map_state.neighbors(hero_position) {
-                if !tile.is_cover() && !Position::is_linear(&tile.position, hero_position) {
+    }
+    pub mod pathfinder {
+        use crate::{data::context::GameContext, data::position::Position};
+        pub fn can_reach(ctx: &GameContext, start: &Position, goal: &Position) -> bool {
+            use std::collections::VecDeque;
+            let mut visited = std::collections::HashSet::new();
+            let mut queue = VecDeque::new();
+            queue.push_back(*start);
+            while let Some(pos) = queue.pop_front() {
+                if pos == *goal {
+                    return true;
+                }
+                if !visited.insert(pos) {
                     continue;
                 }
-                value += tile.get_cover_int();
-            }
-            return value;
-        }
-        pub fn is_hero_icopued(ctx: &GameContext, hero_position: &Position) -> bool {
-            let mut value = 0;
-            for tile in ctx.map_state.neighbors(hero_position) {
-                if tile.tile_type != 3 {
-                    continue;
-                }
-                value += tile.get_cover_int();
-            }
-            value > 0
-        }
-    }
-    pub mod scoring {
-        use crate::context::GameContext;
-        pub fn score_defense(ctx: &GameContext) {}
-        pub fn score_dangerous(ctx: &GameContext) {}
-        pub fn score_shooter(ctx: &GameContext) {}
-        pub fn score_bomber(ctx: &GameContext) {}
-    }
-    pub mod targeting {
-        use crate::{
-            context::GameContext, hero::hero_entity::HeroEntity, position::Position,
-            utils::cover::get_hero_cover_quality,
-        };
-        pub fn nearest_enemy<'a>(ctx: &GameContext) -> i32 {
-            0
-        }
-        pub fn k_closest_enemies<'a>(ctx: &GameContext) -> Vec<i32> {
-            vec![]
-        }
-        pub fn find_safe_bomb_position<'a>(
-            ctx: &'a GameContext,
-            position: &'a Position,
-        ) -> Option<(Position, Position)> {
-            let items = ctx
-                .map_state
-                .neighbors_range(position)
-                .filter(|&tile| tile.is_free())
-                .min_by_key(|nbh| check_for_bomb(ctx, &nbh.position));
-            if let Some(point) = items {
-                if let Some(closest) = find_bomb_closest_target(ctx, &point.position) {
-                    return Some((point.position, closest.clone()));
-                }
-            }
-            None
-        }
-        pub fn check_for_bomb(ctx: &GameContext, position: &Position) -> usize {
-            let enemies = ctx
-                .hero_service
-                .enemy_list()
-                .filter(|enemy| enemy.position.dist(position) <= 1)
-                .count();
-            return enemies;
-        }
-        pub fn find_bomb_closest_target<'a>(
-            ctx: &'a GameContext<'a>,
-            position: &'a Position,
-        ) -> Option<&'a Position> {
-            let min_x = 0;
-            let min_y = 0;
-            let max_x = position.x - 2;
-            let max_y = position.y + 1;
-            let enemies: Vec<_> = ctx
-                .hero_service
-                .enemy_list()
-                .filter(|p| p.position.dist(position) <= 3)
-                .collect();
-            let mut out = (0, position);
-            for y in min_y..=max_y {
-                for x in min_x..=max_x {
-                    if let Some(tile) = ctx.map_state.get_tile(x, y) {
-                        if !tile.is_cover() && position.dist(&tile.position) >= 2 {
-                            let sum = enemies
-                                .iter()
-                                .filter(|en| en.position.dist(&tile.position) <= 2)
-                                .count();
-                            if sum > out.0 {
-                                out = (sum, &tile.position);
-                            }
+                for next in ctx.map_state.neighbors(&pos) {
+                    if let Some(tile) = ctx.map_state.get_tile(next.position.x, next.position.y) {
+                        if tile.is_walkable() {
+                            queue.push_back(next.position);
                         }
                     }
                 }
             }
-            return Some(out.1);
-        }
-        pub fn find_bomb_target<'a>(ctx: &GameContext, position: &Position) -> Option<Position> {
-            let enemies: Vec<_> = ctx
-                .hero_service
-                .enemy_list()
-                .filter(|x| x.position.dist(&position) <= 4)
-                .collect();
-            let width = ctx.map_state.width;
-            let height = ctx.map_state.height;
-            let mut score_map = vec![vec![0u8; width]; height];
-            let radius = 2;
-            for e in &enemies {
-                let min_x = e.position.x.saturating_sub(radius as usize);
-                let max_x = (e.position.x + radius as usize).min(width - 1);
-                let min_y = e.position.y.saturating_sub(radius as usize);
-                let max_y = (e.position.y + radius as usize).min(height - 1);
-                for y in min_y..=max_y {
-                    for x in min_x..=max_x {
-                        score_map[y][x] += 1;
-                    }
-                }
-            }
-            let own_heroes: Vec<_> = ctx.hero_service.my_list().collect();
-            let mut best_pos = None;
-            let mut max_score = 0;
-            for y in 0..height {
-                for x in 0..width {
-                    if score_map[y][x] > max_score {
-                        let p: Position = Position { x, y };
-                        let mut can_bombed = true;
-                        for o_hero in &own_heroes {
-                            if o_hero.position.in_radius(&p, 2) {
-                                can_bombed = false;
-                            }
-                        }
-                        if !can_bombed {
-                            continue;
-                        }
-                        max_score = score_map[y][x];
-                        best_pos = Some(p);
-                    }
-                }
-            }
-            if let Some(p) = best_pos {}
-            best_pos
-        }
-        pub fn find_shoot_target<'a>(ctx: &GameContext, hero: &HeroEntity) -> Option<i32> {
-            let mut enemies = ctx
-                .hero_service
-                .nearby_enemies(hero, 6)
-                .map(|(enemy, _)| enemy)
-                .collect::<Vec<_>>();
-            enemies.sort_by_key(|enemy| get_hero_cover_quality(ctx, &enemy.position));
-            for en in enemies {
-                return Some(en.agent_id);
-            }
-            return None;
+            false
         }
     }
 }
-use crate::cg_reader::CGReader;
-use crate::context::GameContext;
-use crate::hero::hero_service::HeroService;
-use crate::map_state::MapState;
-use crate::reader::Reader;
-use crate::strategy::{SaveStrategy, Strategy};
+#[cfg(feature = "viz")]
+pub mod viz {
+    pub mod render {
+        use crate::{
+            data::context::GameContext, data::position::Position, hero::hero_cmd::HeroCommand,
+        };
+        use macroquad::prelude::*;
+        pub const BLACK_BG: Color = BLACK;
+        pub const STATIC_COLORS: [&str; 16] = [
+            "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF", "#800000", "#008000",
+            "#000080", "#808000", "#800080", "#008080", "#C0C0C0", "#808080", "#FFA500", "#A52A2A",
+        ];
+        fn color_convert<S: AsRef<str>>(s: S) -> Color {
+            let s = s.as_ref().trim_start_matches('#');
+            let r = u8::from_str_radix(&s[0..2], 16).unwrap();
+            let g = u8::from_str_radix(&s[2..4], 16).unwrap();
+            let b = u8::from_str_radix(&s[4..6], 16).unwrap();
+            let a = if s.len() == 8 {
+                u8::from_str_radix(&s[6..8], 16).unwrap()
+            } else {
+                255
+            };
+            Color::new(
+                r as f32 / 255.0,
+                g as f32 / 255.0,
+                b as f32 / 255.0,
+                a as f32 / 255.0,
+            )
+        }
+        pub fn draw_map(ctx: &GameContext) {
+            let tile_w = screen_width() / ctx.map_state.width as f32;
+            let tile_h = screen_height() / ctx.map_state.height as f32;
+            let mouse_point = vec2(mouse_position().0, mouse_position().1);
+            for tile in &ctx.map_state.tiles {
+                let rec = Rect::new(
+                    tile.position.x as f32 * tile_w,
+                    tile.position.y as f32 * tile_h,
+                    tile_w,
+                    tile_h,
+                );
+                draw_rectangle(
+                    rec.x,
+                    rec.y,
+                    tile_w,
+                    tile_h,
+                    match tile.tile_type {
+                        1 => Color::from_rgba(80, 80, 80, 255),
+                        2 => Color::from_rgba(50, 50, 50, 255),
+                        _ => Color::from_rgba(60, 100, 60, 255),
+                    },
+                );
+                draw_tile_text(
+                    format!("{}", tile.position).as_str(),
+                    &tile.position,
+                    tile_w,
+                    tile_h,
+                    20.0,
+                    YELLOW,
+                );
+                if rec.contains(mouse_point) {
+                    draw_text(
+                        format!("TileType:{}", tile.tile_type).as_str(),
+                        rec.x,
+                        rec.y + 20.0,
+                        20.0,
+                        GREEN,
+                    );
+                    draw_rectangle_lines(
+                        rec.x,
+                        rec.y,
+                        tile_w,
+                        tile_h,
+                        5.0,
+                        Color::from_hex(0x3CA7D5),
+                    );
+                }
+            }
+        }
+        pub fn draw_heroes(ctx: &GameContext) {
+            let tile_w = screen_width() / ctx.map_state.width as f32;
+            let tile_h = screen_height() / ctx.map_state.height as f32;
+            let mouse_point = vec2(mouse_position().0, mouse_position().1);
+            for hero in ctx.hero_service.entities_list() {
+                draw_circle(
+                    hero.position.x as f32 * tile_w + tile_w / 2.0,
+                    hero.position.y as f32 * tile_h + tile_h / 2.0,
+                    tile_w.min(tile_h) * 0.4,
+                    if hero.is_owner { BLUE } else { RED },
+                );
+                draw_tile_text(
+                    &hero.agent_id.to_string(),
+                    &hero.position,
+                    tile_w,
+                    tile_h,
+                    20.0,
+                    WHITE,
+                );
+                let rec = Rect::new(
+                    hero.position.x as f32 * tile_w,
+                    hero.position.y as f32 * tile_h,
+                    tile_w,
+                    tile_h,
+                );
+                if rec.contains(mouse_point) {
+                    for (i, field) in hero.fields_vec().iter().enumerate() {
+                        draw_text(field, rec.x, rec.y + 40.0 + i as f32 * 18.0, 20.0, WHITE);
+                    }
+                }
+            }
+        }
+        pub fn draw_actions(actions: &[HeroCommand]) {
+            for (i, act) in actions.iter().enumerate() {
+                draw_text(
+                    format!("{:?}", act).as_str(),
+                    screen_width() - 250.0,
+                    screen_height() - (20.0 * (i as f32 + 1.0)),
+                    20.0,
+                    WHITE,
+                );
+            }
+        }
+        fn draw_tile_text(
+            text: &str,
+            position: &Position,
+            tile_w: f32,
+            tile_h: f32,
+            font_size: f32,
+            color: Color,
+        ) {
+            let text_dimensions = measure_text(text, None, font_size as u16, 1.0);
+            let x = position.x as f32 * tile_w + tile_w / 2.0 - text_dimensions.width / 2.0;
+            let y = position.y as f32 * tile_h + tile_h / 2.0 + text_dimensions.height / 2.0;
+            draw_text(text, x, y, font_size, color);
+        }
+        pub fn debug_position<S: AsRef<str>, U: AsRef<str>>(
+            ctx: &GameContext,
+            position: &Position,
+            color: S,
+            meta: U,
+        ) {
+            let tile_w: f32 = screen_width() / ctx.map_state.width as f32;
+            let tile_h = screen_height() / ctx.map_state.height as f32;
+            let rec = Rect::new(
+                position.x as f32 * tile_w,
+                position.y as f32 * tile_h,
+                tile_w,
+                tile_h,
+            );
+            draw_rectangle(rec.x, rec.y, tile_w, tile_h, color_convert(color));
+            draw_tile_text(meta.as_ref(), position, tile_w, tile_h, 20.0, BLACK);
+        }
+    }
+}
 #[doc = "\n * Win the water fight by controlling the most territory, or out-soak your opponent!\n *"]
 fn main() {
     let mut strat = SaveStrategy::new();
-    let mut reader = CGReader::new();
+    let mut reader = CGReader::new(true);
     let id = reader.read_i32();
     let mut hero_service = HeroService::new(id);
     hero_service.read_profile(&mut reader);
@@ -1045,7 +1165,6 @@ fn main() {
                 x.agent_id,
             )
         });
-        map_state.print();
         let context = GameContext::new(&hero_service, &map_state);
         let my_agent_count = reader.get_count();
         let actions = strat.execute(&context, my_agent_count);

@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{
-    hero::{hero_cmd::HeroCommand, hero_entity::HeroEntity, hero_profile::HeroProfile},
-    map_state::MapState,
-};
+use crate::{data::map_state::MapState, hero::{hero_cmd::HeroCommand, hero_entity::HeroEntity, hero_profile::HeroProfile}};
 
 pub fn read_value<T: std::str::FromStr>() -> T {
     let mut input_line = String::new();
@@ -14,7 +11,7 @@ pub fn read_value<T: std::str::FromStr>() -> T {
 // ---------- Reader Trait ----------
 pub trait Reader {
     fn read_i32(&mut self) -> i32;
-    fn new() -> Self;
+    fn new(verbose: bool) -> Self;
     fn get_count(&mut self) -> usize;
     fn step(&mut self, cmd: &HeroCommand) -> Result<(), Box<dyn std::error::Error>>;
     fn read_map(&mut self) -> MapState;

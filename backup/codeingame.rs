@@ -1,27 +1,17 @@
-pub mod cg_reader;
-pub mod context;
-pub mod hero;
-pub mod map_state;
-mod position;
-pub mod reader;
-pub mod sim_reader;
-pub mod strategy;
-pub mod utils;
-
-use crate::cg_reader::CGReader;
-use crate::context::GameContext;
-use crate::hero::hero_service::HeroService;
-use crate::map_state::MapState;
-
-use crate::reader::Reader;
-use crate::strategy::{SaveStrategy, Strategy};
+extern crate soak_ovevflow;
+use soak_ovevflow::{
+    data::{context::GameContext, map_state::MapState},
+    hero::hero_service::HeroService,
+    io::{cg_reader::CGReader, reader::Reader},
+    systems::strategy::{SaveStrategy, Strategy},
+};
 
 /**
  * Win the water fight by controlling the most territory, or out-soak your opponent!
  **/
 fn main() {
-    let mut strat = SaveStrategy;
-    let mut reader = CGReader::new();
+    let mut strat = SaveStrategy::new();
+    let mut reader = CGReader::new(true);
     let id = reader.read_i32();
     let mut hero_service = HeroService::new(id);
     hero_service.read_profile(&mut reader);
@@ -38,7 +28,7 @@ fn main() {
                 x.agent_id,
             )
         });
-        map_state.print();
+        // map_state.print();
 
         let context = GameContext::new(&hero_service, &map_state);
         let my_agent_count = reader.get_count(); // Number of alive agents controlled by you

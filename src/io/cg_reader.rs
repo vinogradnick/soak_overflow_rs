@@ -1,20 +1,24 @@
 use std::{collections::HashMap, io};
 
 use crate::{
+    data::{
+        map_state::{MapState, Occupant, Tile, TileType},
+        position::Position,
+    },
     hero::{hero_cmd::HeroCommand, hero_entity::HeroEntity, hero_profile::HeroProfile},
-    map_state::{MapState, Tile},
-    position::Position,
-    reader::{Reader, read_value},
+    io::reader::{Reader, read_value},
 };
 
 // ---------- CodinGame Reader ----------
-pub struct CGReader;
+pub struct CGReader {
+    verbose: bool,
+}
 impl Reader for CGReader {
     fn read_i32(&mut self) -> i32 {
         read_value::<i32>()
     }
-    fn new() -> Self {
-        return CGReader;
+    fn new(verbose: bool) -> Self {
+        return Self { verbose };
     }
 
     fn get_count(&mut self) -> usize {
@@ -40,15 +44,15 @@ impl Reader for CGReader {
             let mut input_line = String::new();
             io::stdin().read_line(&mut input_line).unwrap();
             let inputs = input_line.trim().split_whitespace().collect::<Vec<_>>();
-
+            eprintln!("{}", input_line);
             for j in 0..width {
                 let x: usize = inputs[3 * j].parse().unwrap();
                 let y: usize = inputs[3 * j + 1].parse().unwrap();
                 let tile_type: i32 = inputs[3 * j + 2].parse().unwrap();
                 tiles.push(Tile {
                     position: Position::new(x, y),
-                    tile_type,
-                    entity_id: 0,
+                    tile_type: TileType::try_from(tile_type).unwrap_or(TileType::Empty),
+                    occupant: Occupant::None,
                 });
             }
         }
@@ -61,12 +65,14 @@ impl Reader for CGReader {
         io::stdin().read_line(&mut s).unwrap();
         let agent_data_count: i32 = s.trim().parse().unwrap();
 
+        eprintln!("{}", agent_data_count);
+
         let mut profiles = Vec::new();
         for _ in 0..agent_data_count {
             s.clear();
             io::stdin().read_line(&mut s).unwrap();
 
-            eprintln!("Profile:{}", &s);
+            eprintln!("{}", &s);
 
             let inputs: Vec<_> = s.split_whitespace().collect();
 
@@ -94,7 +100,7 @@ impl Reader for CGReader {
         let mut s = String::new();
         io::stdin().read_line(&mut s).unwrap();
         let agent_count: i32 = s.trim().parse().unwrap();
-
+        eprintln!("{}", agent_count);
         let mut entities = Vec::new();
         for _ in 0..agent_count {
             s.clear();

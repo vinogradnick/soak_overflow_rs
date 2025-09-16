@@ -27,8 +27,36 @@ impl Add<(usize, usize)> for Position {
         }
     }
 }
+impl From<(i32, i32)> for Position {
+    fn from(value: (i32, i32)) -> Self {
+        Position {
+            x: value.0 as usize,
+            y: value.1 as usize,
+        }
+    }
+}
 
 impl Position {
+    pub const WAYPOINTS: [(i32, i32); 8] = Position::generate_directions();
+
+    const fn generate_directions() -> [(i32, i32); 8] {
+        let mut dirs = [(0, 0); 8];
+        let mut i = 0;
+        let mut dx = -1;
+        while dx <= 1 {
+            let mut dy = -1;
+            while dy <= 1 {
+                if dx != 0 || dy != 0 {
+                    dirs[i] = (dx, dy);
+                    i += 1;
+                }
+                dy += 1;
+            }
+            dx += 1;
+        }
+        dirs
+    }
+
     pub const DIRECTIONS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
     pub fn neighbors_range(&self, width: usize, height: usize) -> Vec<Position> {
@@ -84,6 +112,13 @@ impl Position {
                 }
             })
             .collect()
+    }
+
+    pub fn new_tuple((x, y): (i32, i32)) -> Self {
+        Self {
+            x: x as usize,
+            y: y as usize,
+        }
     }
 
     pub fn new(x: usize, y: usize) -> Self {

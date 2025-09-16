@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::position::Position;
+use crate::data::position::Position;
 
 #[derive(Debug, Clone)]
 pub enum HeroAction {

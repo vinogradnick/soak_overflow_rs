@@ -1,4 +1,7 @@
-use crate::{context::GameContext, hero::hero_cmd::HeroCommand, position::Position};
+use crate::{
+    data::{context::GameContext, map_state::TileType, position::Position},
+    hero::hero_cmd::HeroCommand,
+};
 use macroquad::prelude::*;
 
 pub const BLACK_BG: Color = BLACK;
@@ -22,8 +25,8 @@ pub const STATIC_COLORS: [&str; 16] = [
     "#A52A2A", // коричневый
 ];
 
-fn color_convert(s: &str) -> Color {
-    let s = s.trim_start_matches('#');
+fn color_convert<S: AsRef<str>>(s: S) -> Color {
+    let s = s.as_ref().trim_start_matches('#');
     let r = u8::from_str_radix(&s[0..2], 16).unwrap();
     let g = u8::from_str_radix(&s[2..4], 16).unwrap();
     let b = u8::from_str_radix(&s[4..6], 16).unwrap();
@@ -60,8 +63,8 @@ pub fn draw_map(ctx: &GameContext) {
             tile_w,
             tile_h,
             match tile.tile_type {
-                1 => Color::from_rgba(80, 80, 80, 255),
-                2 => Color::from_rgba(50, 50, 50, 255),
+                TileType::LowWall => Color::from_rgba(80, 80, 80, 255),
+                TileType::HighWall => Color::from_rgba(50, 50, 50, 255),
                 _ => Color::from_rgba(60, 100, 60, 255),
             },
         );
@@ -99,6 +102,14 @@ pub fn draw_heroes(ctx: &GameContext) {
             hero.position.y as f32 * tile_h + tile_h / 2.0,
             tile_w.min(tile_h) * 0.4,
             if hero.is_owner { BLUE } else { RED },
+        );
+        draw_tile_text(
+            &hero.agent_id.to_string(),
+            &hero.position,
+            tile_w,
+            tile_h,
+            20.0,
+            WHITE,
         );
 
         let rec = Rect::new(
@@ -143,7 +154,12 @@ fn draw_tile_text(
     draw_text(text, x, y, font_size, color);
 }
 
-pub fn debug_position(ctx: &GameContext, position: &Position, color: &str, meta: String) {
+pub fn debug_position<S: AsRef<str>, U: AsRef<str>>(
+    ctx: &GameContext,
+    position: &Position,
+    color: S,
+    meta: U,
+) {
     let tile_w: f32 = screen_width() / ctx.map_state.width as f32;
     let tile_h = screen_height() / ctx.map_state.height as f32;
 
@@ -156,5 +172,5 @@ pub fn debug_position(ctx: &GameContext, position: &Position, color: &str, meta:
 
     draw_rectangle(rec.x, rec.y, tile_w, tile_h, color_convert(color));
 
-    draw_tile_text(meta.as_str(), position, tile_w, tile_h, 20.0, BLACK);
+    draw_tile_text(meta.as_ref(), position, tile_w, tile_h, 20.0, BLACK);
 }

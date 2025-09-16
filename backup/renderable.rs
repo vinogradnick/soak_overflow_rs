@@ -1,34 +1,20 @@
-pub mod cg_reader;
-pub mod context;
-pub mod hero;
-pub mod map_state;
-mod position;
-pub mod reader;
-pub mod sim_reader;
-pub mod strategy;
-pub mod utils;
-pub mod viz;
-
-use crate::context::GameContext;
-use crate::hero::hero_service::HeroService;
-use crate::map_state::MapState;
-
-use crate::reader::Reader;
-use crate::sim_reader::SimReader;
-use crate::strategy::{SaveStrategy, Strategy};
-
 use macroquad::prelude::*;
+use soak_ovevflow::{
+    data::{context::GameContext, map_state::MapState},
+    hero::hero_service::HeroService,
+    io::{reader::Reader, sim_reader::SimReader},
+    systems::strategy::{SaveStrategy, Strategy},
+    viz,
+};
 
 #[macroquad::main("MyGame")]
 async fn main() {
     let mut strat = SaveStrategy::new();
-    let mut reader = SimReader::new();
+    let mut reader = SimReader::new(true);
     let id = reader.read_i32();
     let mut hero_service = HeroService::new(id);
     hero_service.read_profile(&mut reader);
     let mut map_state = MapState::from_input(&mut reader);
-
-    let mut steps = 0;
 
     loop {
         hero_service.read_entity(&mut reader);
@@ -50,11 +36,10 @@ async fn main() {
         viz::render::draw_map(&ctx);
         viz::render::draw_heroes(&ctx);
 
-        let actions = strat.execute(&ctx, my_agent_count);
+        if is_key_down(KeyCode::R) {
+            let actions = strat.execute(&ctx, my_agent_count);
 
-        if steps < 1 {
             for i in &actions {
-                eprintln!("RAW ACTION:[{}]", &i);
                 match reader.step(i) {
                     Ok(_) => {}
                     Err(err) => {
@@ -63,10 +48,8 @@ async fn main() {
                 }
             }
 
-            steps += 1;
+            viz::render::draw_actions(&actions);
         }
-
-        viz::render::draw_actions(&actions);
 
         next_frame().await
     }
