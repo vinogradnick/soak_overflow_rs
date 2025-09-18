@@ -1,12 +1,20 @@
-use macroquad::prelude::*;
-use soak_ovevflow::{
-    data::{context::GameContext, map_state::MapState},
+use crate::{
+    data::{
+        context::GameContext,
+        map_state::{MapState, Occupant, TileType},
+    },
     hero::hero_service::HeroService,
-    io::{reader::Reader, sim_reader::SimReader},
+    io::{cg_reader::CGReader, reader::Reader},
     systems::strategy::{SaveStrategy, Strategy},
-    viz,
 };
+use macroquad::prelude::*;
 
+pub mod data;
+pub mod hero;
+pub mod io;
+pub mod systems;
+pub mod utils;
+pub mod viz;
 #[macroquad::main("MyGame")]
 async fn main() {
     let mut strat = SaveStrategy::new();

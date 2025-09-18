@@ -59,15 +59,16 @@ impl Position {
 
     pub const DIRECTIONS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
-    pub fn neighbors_range(&self, width: usize, height: usize) -> Vec<Position> {
+    pub fn neighbors_range(&self, width: usize, height: usize, range: usize) -> Vec<Position> {
         let mut result = Vec::new();
         let x = self.x as isize;
         let y = self.y as isize;
+        let r = range as isize;
 
-        for dy in -1..=1 {
-            for dx in -1..=1 {
+        for dy in -r..=r {
+            for dx in -r..=r {
                 if dx == 0 && dy == 0 {
-                    continue; // пропускаем саму текущую позицию
+                    continue; // пропускаем саму точку
                 }
 
                 let nx = x + dx;
@@ -84,7 +85,6 @@ impl Position {
 
         result
     }
-
     pub fn neighbors(&self, width: usize, height: usize) -> Vec<Position> {
         let x = self.x;
         let y = self.y;
@@ -121,6 +121,13 @@ impl Position {
         }
     }
 
+    /// дистанция используемая для бомбы потому что диагонали утываются
+    pub fn multi_distance(&self, other: &Position) -> usize {
+        (self.x as isize - other.x as isize)
+            .abs()
+            .max((self.y as isize - other.y as isize).abs()) as usize
+    }
+
     pub fn new(x: usize, y: usize) -> Self {
         Self { x, y }
     }
@@ -131,6 +138,23 @@ impl Position {
     pub fn dist(&self, other: &Position) -> i32 {
         (self.x as i32 - other.x as i32).abs() + (self.y as i32 - other.y as i32).abs()
     }
+
+    /// `include_diagonal = true` — проверять 8 направлений, иначе только 4
+    pub fn is_neighbor(&self, other: &Position, include_diagonal: bool) -> bool {
+        let dx = (self.x as isize - other.x as isize).abs();
+        let dy = (self.y as isize - other.y as isize).abs();
+
+        if dx == 0 && dy == 0 {
+            return false; // сама клетка не считается
+        }
+
+        if include_diagonal {
+            dx <= 1 && dy <= 1
+        } else {
+            dx + dy == 1
+        }
+    }
+
     pub fn dir(&self, other: &Position) -> (i32, i32) {
         (
             other.x as i32 - self.x as i32,

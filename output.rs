@@ -1,3 +1,12 @@
+use crate::{
+    data::{
+        context::GameContext,
+        map_state::{MapState, Occupant, TileType},
+    },
+    hero::hero_service::HeroService,
+    io::{cg_reader::CGReader, reader::Reader},
+    systems::strategy::{SaveStrategy, Strategy},
+};
 pub mod data {
     pub mod context {
         use crate::{data::map_state::MapState, hero::hero_service::HeroService};
@@ -29,36 +38,70 @@ pub mod data {
     pub mod map_state {
         use crate::{data::position::Position, io::reader::Reader};
         use std::fmt::{self, Display};
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[repr(u8)]
+        pub enum TileType {
+            Empty = 0,
+            HighWall = 2,
+            LowWall = 1,
+        }
+        impl TileType {
+            pub fn parse_static(value: i32) -> Result<TileType, ()> {
+                match value {
+                    0 => Ok(TileType::Empty),
+                    2 => Ok(TileType::HighWall),
+                    1 => Ok(TileType::LowWall),
+                    _ => Err(()),
+                }
+            }
+        }
+        impl From<TileType> for i32 {
+            fn from(value: TileType) -> Self {
+                value as i32
+            }
+        }
+        impl fmt::Display for TileType {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let s = match self {
+                    TileType::Empty => "0",
+                    TileType::HighWall => "2",
+                    TileType::LowWall => "1",
+                };
+                write!(f, "{}", s)
+            }
+        }
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum Occupant {
+            None,
+            OwnerHero(i32),
+            EnemyHero(i32),
+        }
+        impl Display for Occupant {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    Occupant::EnemyHero(v) => write!(f, "EnemyHero({})", v),
+                    Occupant::OwnerHero(v) => write!(f, "OwnerHero({})", v),
+                    _ => write!(f, ""),
+                }
+            }
+        }
         #[derive(Debug, Clone, Copy)]
         pub struct Tile {
             pub position: Position,
-            pub tile_type: i32,
-            pub entity_id: i32,
+            pub tile_type: TileType,
+            pub occupant: Occupant,
         }
         impl Tile {
             #[inline]
             pub fn is_walkable(&self) -> bool {
                 !self.is_cover() && !self.is_occupied()
             }
-            pub fn get_cover_int(&self) -> i32 {
-                self.tile_type
-            }
-            pub fn get_cover_value(&self) -> f32 {
-                match self.tile_type {
-                    1 => 0.5,
-                    2 => 0.7,
-                    _ => 0.0,
-                }
-            }
-            pub fn is_free(&self) -> bool {
-                self.tile_type == 0
-            }
             pub fn is_occupied(&self) -> bool {
-                self.entity_id != -1
+                self.occupant != Occupant::None
             }
             #[inline]
             pub fn is_cover(&self) -> bool {
-                return self.tile_type == 1 || self.tile_type == 2;
+                return self.tile_type != TileType::Empty;
             }
         }
         impl Display for Tile {
@@ -66,7 +109,7 @@ pub mod data {
                 write!(
                     f,
                     "Tile({}, {}) type={} entity={}",
-                    self.position.x, self.position.y, self.tile_type, self.entity_id
+                    self.position.x, self.position.y, self.tile_type, self.occupant
                 )
             }
         }
@@ -75,7 +118,6 @@ pub mod data {
             pub height: usize,
             pub width: usize,
             pub tiles: Vec<Tile>,
-            pub enemy_scoring: Vec<i32>,
         }
         impl MapState {
             pub fn new(width: usize, height: usize, tiles: Vec<Tile>) -> Self {
@@ -83,13 +125,16 @@ pub mod data {
                     height,
                     width,
                     tiles,
-                    enemy_scoring: vec![],
                 }
             }
-            pub fn neighbors_range(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
-                pos.neighbors_range(self.width, self.height)
+            pub fn neighbors_range(
+                &self,
+                pos: &Position,
+                range: usize,
+            ) -> impl Iterator<Item = &Tile> {
+                pos.neighbors_range(self.width, self.height, range)
                     .into_iter()
-                    .filter_map(move |p| self.get_tile(p.x, p.y))
+                    .filter_map(|p| self.get_tile(p.x, p.y))
             }
             pub fn neighbors(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
                 pos.neighbors(self.width, self.height)
@@ -102,13 +147,6 @@ pub mod data {
             #[inline]
             pub fn in_bounds(&self, x: usize, y: usize) -> bool {
                 x < self.width && y < self.height
-            }
-            #[inline]
-            pub fn in_bounds_i32(&self, x: i32, y: i32) -> bool {
-                x >= 0 && x < self.width as i32 && y >= 0 && y < self.height as i32
-            }
-            pub fn is_in_map(&self, pos: &Position) -> bool {
-                self.in_bounds(pos.x, pos.y)
             }
             pub fn from_input<R: Reader>(reader: &mut R) -> Self {
                 reader.read_map()
@@ -123,11 +161,17 @@ pub mod data {
                     eprintln!();
                 }
             }
-            pub fn update_tile(&mut self, x: usize, y: usize, tile_type: i32, entity_id: i32) {
+            pub fn update_tile(
+                &mut self,
+                x: usize,
+                y: usize,
+                tile_type: TileType,
+                occupant: Occupant,
+            ) {
                 if self.in_bounds(x, y) {
                     let index = y * self.width + x;
                     self.tiles[index].tile_type = tile_type;
-                    self.tiles[index].entity_id = entity_id;
+                    self.tiles[index].occupant = occupant;
                 }
             }
             pub fn get_tile(&self, x: usize, y: usize) -> Option<&Tile> {
@@ -154,10 +198,11 @@ pub mod data {
                 for (y, line) in lines.iter().enumerate() {
                     for (x, ch) in line.chars().enumerate() {
                         let val = ch.to_digit(10).unwrap() as i32;
+                        let tile = TileType::parse_static(val).unwrap_or(TileType::Empty);
                         tiles.push(Tile {
                             position: Position { x: x, y: y },
-                            tile_type: val,
-                            entity_id: -1,
+                            tile_type: tile,
+                            occupant: Occupant::None,
                         });
                     }
                 }
@@ -218,12 +263,18 @@ pub mod data {
                 dirs
             }
             pub const DIRECTIONS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
-            pub fn neighbors_range(&self, width: usize, height: usize) -> Vec<Position> {
+            pub fn neighbors_range(
+                &self,
+                width: usize,
+                height: usize,
+                range: usize,
+            ) -> Vec<Position> {
                 let mut result = Vec::new();
                 let x = self.x as isize;
                 let y = self.y as isize;
-                for dy in -1..=1 {
-                    for dx in -1..=1 {
+                let r = range as isize;
+                for dy in -r..=r {
+                    for dx in -r..=r {
                         if dx == 0 && dy == 0 {
                             continue;
                         }
@@ -270,6 +321,12 @@ pub mod data {
                     y: y as usize,
                 }
             }
+            #[doc = " дистанция используемая для бомбы потому что диагонали утываются"]
+            pub fn multi_distance(&self, other: &Position) -> usize {
+                (self.x as isize - other.x as isize)
+                    .abs()
+                    .max((self.y as isize - other.y as isize).abs()) as usize
+            }
             pub fn new(x: usize, y: usize) -> Self {
                 Self { x, y }
             }
@@ -278,6 +335,19 @@ pub mod data {
             }
             pub fn dist(&self, other: &Position) -> i32 {
                 (self.x as i32 - other.x as i32).abs() + (self.y as i32 - other.y as i32).abs()
+            }
+            #[doc = " `include_diagonal = true` — проверять 8 направлений, иначе только 4"]
+            pub fn is_neighbor(&self, other: &Position, include_diagonal: bool) -> bool {
+                let dx = (self.x as isize - other.x as isize).abs();
+                let dy = (self.y as isize - other.y as isize).abs();
+                if dx == 0 && dy == 0 {
+                    return false;
+                }
+                if include_diagonal {
+                    dx <= 1 && dy <= 1
+                } else {
+                    dx + dy == 1
+                }
             }
             pub fn dir(&self, other: &Position) -> (i32, i32) {
                 (
@@ -372,6 +442,7 @@ pub mod hero {
     }
     pub mod hero_service {
         use crate::{
+            data::position::Position,
             hero::{hero_entity::HeroEntity, hero_profile::HeroProfile, hero_view::HeroView},
             io::reader::Reader,
         };
@@ -469,7 +540,7 @@ pub mod io {
     pub mod cg_reader {
         use crate::{
             data::{
-                map_state::{MapState, Tile},
+                map_state::{MapState, Occupant, Tile, TileType},
                 position::Position,
             },
             hero::{hero_cmd::HeroCommand, hero_entity::HeroEntity, hero_profile::HeroProfile},
@@ -512,8 +583,8 @@ pub mod io {
                         let tile_type: i32 = inputs[3 * j + 2].parse().unwrap();
                         tiles.push(Tile {
                             position: Position::new(x, y),
-                            tile_type,
-                            entity_id: 0,
+                            tile_type: TileType::parse_static(tile_type).unwrap_or(TileType::Empty),
+                            occupant: Occupant::None,
                         });
                     }
                 }
@@ -604,7 +675,7 @@ pub mod io {
     pub mod sim_reader {
         use crate::{
             data::{
-                map_state::{MapState, Tile},
+                map_state::{MapState, Occupant, Tile, TileType},
                 position::Position,
             },
             hero::{
@@ -682,7 +753,7 @@ pub mod io {
                 let entity = &mut self.entities[idx];
                 if let Some(tile) = self.map.get_tile_mut(pos.x as usize, pos.y as usize) {
                     if !tile.is_occupied() {
-                        tile.entity_id = entity.agent_id;
+                        tile.occupant = Occupant::OwnerHero(entity.agent_id);
                         entity.position = pos;
                     } else {
                         return Err(Box::from("Cannot move entity"));
@@ -740,8 +811,8 @@ pub mod io {
                         let tile_type: i32 = inputs[3 * j + 2].parse().unwrap();
                         tiles.push(Tile {
                             position: Position::new(x, y),
-                            tile_type,
-                            entity_id: -1,
+                            tile_type: TileType::parse_static(tile_type).unwrap_or(TileType::Empty),
+                            occupant: Occupant::None,
                         });
                     }
                 }
@@ -862,12 +933,33 @@ pub mod systems {
             }
         }
     }
+    pub mod scoring {
+        use crate::{data::context::GameContext, hero::hero_entity::HeroEntity};
+        pub fn is_surrounded(ctx: &GameContext, hero: &HeroEntity) -> bool {
+            let dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+            let pos = hero.position;
+            for (dx, dy) in dirs {
+                let nx = pos.x as i32 + dx;
+                let ny = pos.y as i32 + dy;
+                if ctx.map_state.in_bounds(nx as usize, ny as usize) {
+                    if let Some(tile) = ctx.map_state.get_tile(nx as usize, ny as usize) {
+                        if !tile.is_occupied() && !tile.is_cover() {
+                            return false;
+                        }
+                    }
+                }
+            }
+            true
+        }
+    }
 }
 pub mod utils {
     pub mod bomb {
         use crate::{
-            data::context::GameContext, data::position::Position, hero::hero_entity::HeroEntity,
-            utils,
+            data::{context::GameContext, position::Position},
+            hero::hero_entity::HeroEntity,
+            systems::scoring::is_surrounded,
+            utils::{self, pathfinder},
         };
         const RADIUS: i32 = 2;
         fn find_enemy_cluster(ctx: &GameContext) -> Option<Position> {
@@ -896,6 +988,11 @@ pub mod utils {
             ctx: &'a GameContext,
             hero: &'a HeroEntity,
         ) -> Option<(Position, Position)> {
+            for tile in ctx.map_state.neighbors(&hero.position) {
+                if tile.is_occupied() {
+                    return find_save_bombing_position(ctx, hero);
+                }
+            }
             for tile in &ctx.map_state.tiles {
                 if tile.is_cover()
                     || tile.is_occupied()
@@ -912,21 +1009,43 @@ pub mod utils {
                 let p = find_enemy_cluster(ctx);
                 if let Some(t) = p {
                     if t.dist(&tile.position) <= 3 {
-                        crate::viz::render::debug_position(
-                            ctx,
-                            &tile.position,
-                            "#9722b4ff",
-                            format!("H:{}", hero.agent_id),
-                        );
-                        crate::viz::render::debug_position(
-                            ctx,
-                            &t,
-                            "#9722b4ff",
-                            format!("H:{}", hero.agent_id),
-                        );
                         return Some((tile.position, t));
                     }
                 }
+            }
+            None
+        }
+        pub fn bomb_evaluate<'a>(
+            ctx: &'a GameContext,
+            pos: &Position,
+            hero_position: &Position,
+        ) -> i32 {
+            let mut count = 0;
+            for enemy in ctx.hero_service.enemy_list() {
+                if enemy.position.multi_distance(pos) < 2 {
+                    count += 1;
+                }
+            }
+            return count;
+        }
+        pub fn find_save_bombing_position<'a>(
+            ctx: &'a GameContext,
+            hero: &'a HeroEntity,
+        ) -> Option<(Position, Position)> {
+            let prepared = ctx
+                .map_state
+                .tiles
+                .iter()
+                .filter(|t| {
+                    let pdist = t.position.multi_distance(&hero.position);
+                    !t.is_cover() && pdist > 1 && pdist < 3
+                })
+                .collect::<Vec<_>>();
+            let maxed = prepared
+                .iter()
+                .max_by_key(|t| bomb_evaluate(ctx, &t.position, &hero.position));
+            if let Some(v) = maxed {
+                return Some((hero.position.clone(), v.position.clone()));
             }
             None
         }
@@ -948,7 +1067,7 @@ pub mod utils {
                     (tile.is_cover()).then_some((dist, tile))
                 })
                 .collect();
-            nearby_covers.sort_by_key(|(dist, tile)| *dist / tile.get_cover_int());
+            nearby_covers.sort_by_key(|(dist, tile)| *dist / tile.tile_type as i32);
             for (_, tile) in &nearby_covers {
                 let mut dx = 0;
                 let mut dy = 0;
@@ -994,159 +1113,6 @@ pub mod utils {
         }
     }
 }
-#[cfg(feature = "viz")]
-pub mod viz {
-    pub mod render {
-        use crate::{
-            data::context::GameContext, data::position::Position, hero::hero_cmd::HeroCommand,
-        };
-        use macroquad::prelude::*;
-        pub const BLACK_BG: Color = BLACK;
-        pub const STATIC_COLORS: [&str; 16] = [
-            "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF", "#800000", "#008000",
-            "#000080", "#808000", "#800080", "#008080", "#C0C0C0", "#808080", "#FFA500", "#A52A2A",
-        ];
-        fn color_convert<S: AsRef<str>>(s: S) -> Color {
-            let s = s.as_ref().trim_start_matches('#');
-            let r = u8::from_str_radix(&s[0..2], 16).unwrap();
-            let g = u8::from_str_radix(&s[2..4], 16).unwrap();
-            let b = u8::from_str_radix(&s[4..6], 16).unwrap();
-            let a = if s.len() == 8 {
-                u8::from_str_radix(&s[6..8], 16).unwrap()
-            } else {
-                255
-            };
-            Color::new(
-                r as f32 / 255.0,
-                g as f32 / 255.0,
-                b as f32 / 255.0,
-                a as f32 / 255.0,
-            )
-        }
-        pub fn draw_map(ctx: &GameContext) {
-            let tile_w = screen_width() / ctx.map_state.width as f32;
-            let tile_h = screen_height() / ctx.map_state.height as f32;
-            let mouse_point = vec2(mouse_position().0, mouse_position().1);
-            for tile in &ctx.map_state.tiles {
-                let rec = Rect::new(
-                    tile.position.x as f32 * tile_w,
-                    tile.position.y as f32 * tile_h,
-                    tile_w,
-                    tile_h,
-                );
-                draw_rectangle(
-                    rec.x,
-                    rec.y,
-                    tile_w,
-                    tile_h,
-                    match tile.tile_type {
-                        1 => Color::from_rgba(80, 80, 80, 255),
-                        2 => Color::from_rgba(50, 50, 50, 255),
-                        _ => Color::from_rgba(60, 100, 60, 255),
-                    },
-                );
-                draw_tile_text(
-                    format!("{}", tile.position).as_str(),
-                    &tile.position,
-                    tile_w,
-                    tile_h,
-                    20.0,
-                    YELLOW,
-                );
-                if rec.contains(mouse_point) {
-                    draw_text(
-                        format!("TileType:{}", tile.tile_type).as_str(),
-                        rec.x,
-                        rec.y + 20.0,
-                        20.0,
-                        GREEN,
-                    );
-                    draw_rectangle_lines(
-                        rec.x,
-                        rec.y,
-                        tile_w,
-                        tile_h,
-                        5.0,
-                        Color::from_hex(0x3CA7D5),
-                    );
-                }
-            }
-        }
-        pub fn draw_heroes(ctx: &GameContext) {
-            let tile_w = screen_width() / ctx.map_state.width as f32;
-            let tile_h = screen_height() / ctx.map_state.height as f32;
-            let mouse_point = vec2(mouse_position().0, mouse_position().1);
-            for hero in ctx.hero_service.entities_list() {
-                draw_circle(
-                    hero.position.x as f32 * tile_w + tile_w / 2.0,
-                    hero.position.y as f32 * tile_h + tile_h / 2.0,
-                    tile_w.min(tile_h) * 0.4,
-                    if hero.is_owner { BLUE } else { RED },
-                );
-                draw_tile_text(
-                    &hero.agent_id.to_string(),
-                    &hero.position,
-                    tile_w,
-                    tile_h,
-                    20.0,
-                    WHITE,
-                );
-                let rec = Rect::new(
-                    hero.position.x as f32 * tile_w,
-                    hero.position.y as f32 * tile_h,
-                    tile_w,
-                    tile_h,
-                );
-                if rec.contains(mouse_point) {
-                    for (i, field) in hero.fields_vec().iter().enumerate() {
-                        draw_text(field, rec.x, rec.y + 40.0 + i as f32 * 18.0, 20.0, WHITE);
-                    }
-                }
-            }
-        }
-        pub fn draw_actions(actions: &[HeroCommand]) {
-            for (i, act) in actions.iter().enumerate() {
-                draw_text(
-                    format!("{:?}", act).as_str(),
-                    screen_width() - 250.0,
-                    screen_height() - (20.0 * (i as f32 + 1.0)),
-                    20.0,
-                    WHITE,
-                );
-            }
-        }
-        fn draw_tile_text(
-            text: &str,
-            position: &Position,
-            tile_w: f32,
-            tile_h: f32,
-            font_size: f32,
-            color: Color,
-        ) {
-            let text_dimensions = measure_text(text, None, font_size as u16, 1.0);
-            let x = position.x as f32 * tile_w + tile_w / 2.0 - text_dimensions.width / 2.0;
-            let y = position.y as f32 * tile_h + tile_h / 2.0 + text_dimensions.height / 2.0;
-            draw_text(text, x, y, font_size, color);
-        }
-        pub fn debug_position<S: AsRef<str>, U: AsRef<str>>(
-            ctx: &GameContext,
-            position: &Position,
-            color: S,
-            meta: U,
-        ) {
-            let tile_w: f32 = screen_width() / ctx.map_state.width as f32;
-            let tile_h = screen_height() / ctx.map_state.height as f32;
-            let rec = Rect::new(
-                position.x as f32 * tile_w,
-                position.y as f32 * tile_h,
-                tile_w,
-                tile_h,
-            );
-            draw_rectangle(rec.x, rec.y, tile_w, tile_h, color_convert(color));
-            draw_tile_text(meta.as_ref(), position, tile_w, tile_h, 20.0, BLACK);
-        }
-    }
-}
 #[doc = "\n * Win the water fight by controlling the most territory, or out-soak your opponent!\n *"]
 fn main() {
     let mut strat = SaveStrategy::new();
@@ -1161,8 +1127,12 @@ fn main() {
             map_state.update_tile(
                 x.position.x as usize,
                 x.position.y as usize,
-                if x.is_owner { 4 } else { 3 },
-                x.agent_id,
+                TileType::Empty,
+                if x.is_owner {
+                    Occupant::OwnerHero(x.agent_id)
+                } else {
+                    Occupant::EnemyHero(x.agent_id)
+                },
             )
         });
         let context = GameContext::new(&hero_service, &map_state);

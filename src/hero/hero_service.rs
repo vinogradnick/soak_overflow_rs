@@ -44,12 +44,6 @@ impl HeroService {
             })
     }
 
-    pub fn near(&self, position: &Position, dist: &i32) -> impl Iterator<Item = &HeroEntity> {
-        self.entities
-            .values()
-            .filter(|x| x.position.dist(position) <= *dist)
-    }
-
     pub fn enemy_list(&self) -> impl Iterator<Item = &HeroEntity> {
         self.entities.values().filter(|&x| !x.is_owner)
     }

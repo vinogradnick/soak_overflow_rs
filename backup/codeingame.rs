@@ -1,10 +1,19 @@
-extern crate soak_ovevflow;
-use soak_ovevflow::{
-    data::{context::GameContext, map_state::MapState},
+use crate::{
+    data::{
+        context::GameContext,
+        map_state::{MapState, Occupant, TileType},
+    },
     hero::hero_service::HeroService,
     io::{cg_reader::CGReader, reader::Reader},
     systems::strategy::{SaveStrategy, Strategy},
 };
+
+pub mod data;
+pub mod hero;
+pub mod io;
+pub mod systems;
+pub mod utils;
+// pub mod viz;
 
 /**
  * Win the water fight by controlling the most territory, or out-soak your opponent!
@@ -24,8 +33,12 @@ fn main() {
             map_state.update_tile(
                 x.position.x as usize,
                 x.position.y as usize,
-                if x.is_owner { 4 } else { 3 },
-                x.agent_id,
+                TileType::Empty,
+                if x.is_owner {
+                    Occupant::OwnerHero(x.agent_id)
+                } else {
+                    Occupant::EnemyHero(x.agent_id)
+                },
             )
         });
         // map_state.print();

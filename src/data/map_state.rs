@@ -10,22 +10,20 @@ pub enum TileType {
     LowWall = 1,
 }
 
-impl From<TileType> for i32 {
-    fn from(value: TileType) -> Self {
-        value as i32
-    }
-}
-
-impl TryFrom<i32> for TileType {
-    type Error = ();
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+impl TileType {
+    pub fn parse_static(value: i32) -> Result<TileType, ()> {
         match value {
             0 => Ok(TileType::Empty),
             2 => Ok(TileType::HighWall),
             1 => Ok(TileType::LowWall),
             _ => Err(()),
         }
+    }
+}
+
+impl From<TileType> for i32 {
+    fn from(value: TileType) -> Self {
+        value as i32
     }
 }
 
@@ -104,8 +102,8 @@ impl MapState {
             tiles,
         }
     }
-    pub fn neighbors_range(&self, pos: &Position) -> impl Iterator<Item = &Tile> {
-        pos.neighbors_range(self.width, self.height)
+    pub fn neighbors_range(&self, pos: &Position, range: usize) -> impl Iterator<Item = &Tile> {
+        pos.neighbors_range(self.width, self.height, range)
             .into_iter()
             .filter_map(move |p| self.get_tile(p.x, p.y))
     }
@@ -125,14 +123,6 @@ impl MapState {
         x < self.width && y < self.height
     }
 
-    #[inline]
-    pub fn in_bounds_i32(&self, x: i32, y: i32) -> bool {
-        x >= 0 && x < self.width as i32 && y >= 0 && y < self.height as i32
-    }
-
-    pub fn is_in_map(&self, pos: &Position) -> bool {
-        self.in_bounds(pos.x, pos.y)
-    }
     pub fn from_input<R: Reader>(reader: &mut R) -> Self {
         reader.read_map()
     }
@@ -144,6 +134,26 @@ impl MapState {
                 let tile = &self.tiles[idx];
 
                 eprint!("{}", tile.tile_type);
+            }
+            eprintln!();
+        }
+    }
+
+    pub fn print_fancy(&self) {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let idx = y * self.width + x;
+                let tile = &self.tiles[idx];
+
+                if tile.is_occupied() {
+                    eprint!("E");
+                    continue;
+                }
+                match tile.tile_type {
+                    TileType::Empty => eprint!(" "),
+                    TileType::HighWall => eprint!("H"),
+                    TileType::LowWall => eprint!("L"),
+                }
             }
             eprintln!();
         }
@@ -185,7 +195,7 @@ impl MapState {
         for (y, line) in lines.iter().enumerate() {
             for (x, ch) in line.chars().enumerate() {
                 let val = ch.to_digit(10).unwrap() as i32;
-                let tile = TileType::try_from(val).unwrap_or(TileType::Empty);
+                let tile = TileType::parse_static(val).unwrap_or(TileType::Empty);
                 tiles.push(Tile {
                     position: Position { x: x, y: y },
                     tile_type: tile,

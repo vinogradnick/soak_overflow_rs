@@ -51,7 +51,7 @@ impl Reader for CGReader {
                 let tile_type: i32 = inputs[3 * j + 2].parse().unwrap();
                 tiles.push(Tile {
                     position: Position::new(x, y),
-                    tile_type: TileType::try_from(tile_type).unwrap_or(TileType::Empty),
+                    tile_type: TileType::parse_static(tile_type).unwrap_or(TileType::Empty),
                     occupant: Occupant::None,
                 });
             }

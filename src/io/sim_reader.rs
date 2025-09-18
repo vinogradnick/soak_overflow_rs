@@ -69,11 +69,11 @@ impl SimReader {
     fn throw_entities(&mut self, pos: Position) -> Result<(), Box<dyn std::error::Error>> {
         let radius = 1;
 
-        for e in self.entities.iter_mut().filter(|e| {
-            let dx = e.position.x as i32 - pos.x as i32;
-            let dy = e.position.y as i32 - pos.y as i32;
-            dx.abs() <= radius && dy.abs() <= radius
-        }) {
+        for e in self
+            .entities
+            .iter_mut()
+            .filter(|e| e.position.multi_distance(&pos) == 1)
+        {
             e.wetness = 999;
         }
 
@@ -126,7 +126,7 @@ impl Reader for SimReader {
     }
 
     fn step(&mut self, cmd: &HeroCommand) -> Result<(), Box<dyn std::error::Error>> {
-        // self.apply_hero_commands(cmd)
+        self.apply_hero_commands(cmd);
         Ok(())
     }
 
@@ -151,7 +151,7 @@ impl Reader for SimReader {
                 let tile_type: i32 = inputs[3 * j + 2].parse().unwrap();
                 tiles.push(Tile {
                     position: Position::new(x, y),
-                    tile_type: TileType::try_from(tile_type).unwrap_or(TileType::Empty),
+                    tile_type: TileType::parse_static(tile_type).unwrap_or(TileType::Empty),
                     occupant: Occupant::None,
                 });
             }
@@ -236,7 +236,7 @@ impl Reader for SimReader {
         Self {
             profiles: vec![],
             entities: vec![],
-            raw_data: fs::read_to_string("./mapper.txt")
+            raw_data: fs::read_to_string("./case3.txt")
                 .unwrap()
                 .lines()
                 .map(|x| x.to_string())
