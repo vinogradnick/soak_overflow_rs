@@ -24,7 +24,10 @@ impl Strategy for SaveStrategy {
 
             let target = crate::utils::bomb::find_bombing_position(ctx, &hero);
             if let Some((moving, bomber)) = target {
-                cmd.push(HeroAction::Move(moving));
+                if hero.position != moving {
+                    cmd.push(HeroAction::Move(moving));
+                }
+
                 cmd.push(HeroAction::Throw(bomber));
             }
 

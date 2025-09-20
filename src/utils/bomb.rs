@@ -1,8 +1,7 @@
 use crate::{
     data::{context::GameContext, position::Position},
     hero::hero_entity::HeroEntity,
-    systems::scoring::is_surrounded,
-    utils::{self, pathfinder},
+    utils::{self},
 };
 
 const RADIUS: i32 = 2; // радиус вокруг тайла для подсчёта врагов

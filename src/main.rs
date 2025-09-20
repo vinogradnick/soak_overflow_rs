@@ -48,18 +48,19 @@ async fn main() {
         viz::render::draw_map(&ctx);
         viz::render::draw_heroes(&ctx);
 
-        if is_key_down(KeyCode::R) {
+        if is_key_pressed(KeyCode::R) {
             let actions = strat.execute(&ctx, my_agent_count);
 
             for i in &actions {
+                eprintln!("{}", i);
                 match reader.step(i) {
                     Ok(_) => {}
                     Err(err) => {
-                        eprintln!("{:?}", err);
+                        eprintln!("HandleError:{}", err)
                     }
                 }
             }
-
+            eprintln!("======NEXT_STEP======");
             viz::render::draw_actions(&actions);
         }
 

@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::format,
     fs::{self},
 };
 
@@ -46,18 +47,23 @@ impl SimReader {
         id: i32,
         action: &HeroAction,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let idx = self
-            .entities
-            .iter()
-            .position(|e| e.agent_id == id)
-            .ok_or_else(|| format!("Entity with id {} not found", id))?;
+        let hero = self.entities.iter_mut().find(|hero| hero.agent_id == id);
 
-        match action {
-            HeroAction::Move(pos) => self.move_entity(idx, *pos),
-            HeroAction::Shoot(target_id) => self.shoot_entity(idx, *target_id),
-            HeroAction::Wait => self.wait_entity(idx),
-            HeroAction::Throw(position) => self.throw_entities(position.clone()),
-        }
+        return match hero {
+            Some(t_hero) => match action {
+                HeroAction::Move(pos) => self.move_entity(id, *pos),
+                HeroAction::Shoot(target_id) => self.shoot_entity(id, *target_id),
+                HeroAction::Wait => self.wait_entity(id),
+                HeroAction::Throw(position) => {
+                    if t_hero.splash_bombs > 0 {
+                        self.throw_entities(id, position.clone())?;
+                        return Ok(());
+                    }
+                    return Err(Box::from(format!("Hero empty bombs")));
+                }
+            },
+            None => Err(Box::from(format!("Hero {} is not defined", id))),
+        };
     }
 
     fn evaluate(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -66,56 +72,77 @@ impl SimReader {
         Ok(())
     }
 
-    fn throw_entities(&mut self, pos: Position) -> Result<(), Box<dyn std::error::Error>> {
-        let radius = 1;
-
+    fn throw_entities(
+        &mut self,
+        agent_id: i32,
+        pos: Position,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         for e in self
             .entities
             .iter_mut()
-            .filter(|e| e.position.multi_distance(&pos) == 1)
+            .filter(|e| e.position.multi_distance(&pos) <= 1)
         {
+            if e.agent_id == agent_id {
+                e.splash_bombs -= 1;
+            }
             e.wetness = 999;
         }
 
         Ok(())
     }
 
-    fn move_entity(&mut self, idx: usize, pos: Position) -> Result<(), Box<dyn std::error::Error>> {
-        let entity = &mut self.entities[idx];
+    fn move_entity(&mut self, idx: i32, pos: Position) -> Result<(), Box<dyn std::error::Error>> {
+        let entity = self
+            .entities
+            .iter_mut()
+            .find(|x| x.agent_id == idx)
+            .unwrap();
+
         if let Some(tile) = self.map.get_tile_mut(pos.x as usize, pos.y as usize) {
-            if !tile.is_occupied() {
+            if tile.is_walkable() {
                 tile.occupant = Occupant::OwnerHero(entity.agent_id);
                 entity.position = pos;
+                return Ok(());
             } else {
-                return Err(Box::from("Cannot move entity"));
+                return Err(Box::from(format!(
+                    "Cannot move AgentID={}\tTileStatus={}\tTargetPosition={}",
+                    entity.agent_id,
+                    tile.is_walkable(),
+                    tile.position
+                )));
             }
-        } else {
-            eprintln!("[DEBUG]: Invalid position {}", pos);
         }
-        Ok(())
+        eprintln!("MAPPING_PRINTING");
+
+        self.map.tiles.iter().for_each(|tile| {
+            eprintln!("{:?}", tile);
+        });
+        eprintln!("END_MAPPING_PRINTING");
+        return Err(Box::from(format!(
+            "(TileNotFound) Cannot move AgentID={}\tHeroPosition=[{}] to [{}] validator:{:?}",
+            entity.agent_id,
+            entity.position,
+            pos,
+            (),
+        )));
     }
 
     fn shoot_entity(
         &mut self,
-        shooter_idx: usize,
+        shooter_idx: i32,
         target_id: i32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let shooter = self.entities[shooter_idx];
         if let Some(target) = self.entities.iter_mut().find(|e| e.agent_id == target_id) {
             target.wetness += 6;
-            eprintln!(
-                "Entity {} shot Entity {}",
-                shooter.agent_id, target.agent_id
-            );
+            eprintln!("Entity {} shot Entity {}", shooter_idx, target.agent_id);
         } else {
             eprintln!("Cannot shoot Entity {}", target_id);
         }
         Ok(())
     }
 
-    fn wait_entity(&self, idx: usize) -> Result<(), Box<dyn std::error::Error>> {
-        let entity = &self.entities[idx];
-        println!("Entity {} waits", entity.agent_id);
+    fn wait_entity(&self, idx: i32) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Entity {} waits", idx);
         Ok(())
     }
 }
@@ -126,7 +153,7 @@ impl Reader for SimReader {
     }
 
     fn step(&mut self, cmd: &HeroCommand) -> Result<(), Box<dyn std::error::Error>> {
-        self.apply_hero_commands(cmd);
+        self.apply_hero_commands(cmd)?;
         Ok(())
     }
 
@@ -156,6 +183,7 @@ impl Reader for SimReader {
                 });
             }
         }
+        self.map = MapState::new(width, height, tiles.clone());
 
         MapState::new(width, height, tiles)
     }

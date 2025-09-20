@@ -63,20 +63,21 @@ pub fn draw_map(ctx: &GameContext) {
             tile_w,
             tile_h,
             match tile.tile_type {
-                TileType::LowWall => Color::from_rgba(80, 80, 80, 255),
-                TileType::HighWall => Color::from_rgba(50, 50, 50, 255),
-                _ => Color::from_rgba(60, 100, 60, 255),
+                TileType::LowWall => color_convert("#669BBC"),
+                TileType::HighWall => color_convert("#003049"),
+                _ => color_convert("#000000"),
             },
         );
+        draw_rectangle_lines(rec.x, rec.y, tile_w, tile_h, 1.0, color_convert("#14213D"));
 
-        draw_tile_text(
-            format!("{}", tile.position).as_str(),
-            &tile.position,
-            tile_w,
-            tile_h,
-            20.0,
-            YELLOW,
-        );
+        // draw_tile_text(
+        //     format!("{}", tile.position).as_str(),
+        //     &tile.position,
+        //     tile_w,
+        //     tile_h,
+        //     20.0,
+        //     WHITE,
+        // );
 
         if rec.contains(mouse_point) {
             draw_text(
@@ -85,6 +86,14 @@ pub fn draw_map(ctx: &GameContext) {
                 rec.y + 20.0,
                 20.0,
                 GREEN,
+            );
+            draw_tile_text(
+                format!("{}", tile.position).as_str(),
+                &tile.position,
+                tile_w,
+                tile_h,
+                20.0,
+                WHITE,
             );
             draw_rectangle_lines(rec.x, rec.y, tile_w, tile_h, 5.0, Color::from_hex(0x3CA7D5));
         }
@@ -101,7 +110,11 @@ pub fn draw_heroes(ctx: &GameContext) {
             hero.position.x as f32 * tile_w + tile_w / 2.0,
             hero.position.y as f32 * tile_h + tile_h / 2.0,
             tile_w.min(tile_h) * 0.4,
-            if hero.is_owner { BLUE } else { RED },
+            if hero.is_owner {
+                color_convert("#FCA311")
+            } else {
+                color_convert("#780000")
+            },
         );
         draw_tile_text(
             &hero.agent_id.to_string(),
