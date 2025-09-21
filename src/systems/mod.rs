@@ -1,2 +1,3 @@
-pub mod strategy;
-pub mod scoring;
+pub mod pathfinder;
+pub mod history;
+pub mod system;

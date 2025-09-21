@@ -1,7 +1,5 @@
-use crate::{
-    data::{context::GameContext, map_state::TileType, position::Position},
-    hero::hero_cmd::HeroCommand,
-};
+use crate::data::{game_context::GameContext, hero::HeroCommand, position::Position};
+
 use macroquad::prelude::*;
 
 pub const BLACK_BG: Color = BLACK;
@@ -45,14 +43,14 @@ fn color_convert<S: AsRef<str>>(s: S) -> Color {
 }
 
 pub fn draw_map(ctx: &GameContext) {
-    let tile_w = screen_width() / ctx.map_state.width as f32;
-    let tile_h = screen_height() / ctx.map_state.height as f32;
+    let tile_w = screen_width() / ctx.tilemap.get_width() as f32;
+    let tile_h = screen_height() / ctx.tilemap.get_height() as f32;
     let mouse_point = vec2(mouse_position().0, mouse_position().1);
 
-    for tile in &ctx.map_state.tiles {
+    for (tile_type, enemy_id, position) in ctx.tilemap.iter() {
         let rec = Rect::new(
-            tile.position.x as f32 * tile_w,
-            tile.position.y as f32 * tile_h,
+            position.x as f32 * tile_w,
+            position.y as f32 * tile_h,
             tile_w,
             tile_h,
         );
@@ -62,34 +60,25 @@ pub fn draw_map(ctx: &GameContext) {
             rec.y,
             tile_w,
             tile_h,
-            match tile.tile_type {
-                TileType::LowWall => color_convert("#669BBC"),
-                TileType::HighWall => color_convert("#003049"),
+            match tile_type {
+                1 => color_convert("#669BBC"),
+                2 => color_convert("#003049"),
                 _ => color_convert("#000000"),
             },
         );
         draw_rectangle_lines(rec.x, rec.y, tile_w, tile_h, 1.0, color_convert("#14213D"));
 
-        // draw_tile_text(
-        //     format!("{}", tile.position).as_str(),
-        //     &tile.position,
-        //     tile_w,
-        //     tile_h,
-        //     20.0,
-        //     WHITE,
-        // );
-
         if rec.contains(mouse_point) {
             draw_text(
-                format!("TileType:{}", tile.tile_type).as_str(),
+                format!("TileType:{}", tile_type).as_str(),
                 rec.x,
                 rec.y + 20.0,
                 20.0,
                 GREEN,
             );
             draw_tile_text(
-                format!("{}", tile.position).as_str(),
-                &tile.position,
+                format!("{}", position).as_str(),
+                &position,
                 tile_w,
                 tile_h,
                 20.0,
@@ -101,16 +90,20 @@ pub fn draw_map(ctx: &GameContext) {
 }
 
 pub fn draw_heroes(ctx: &GameContext) {
-    let tile_w = screen_width() / ctx.map_state.width as f32;
-    let tile_h = screen_height() / ctx.map_state.height as f32;
+    let tile_w = screen_width() / ctx.tilemap.get_width() as f32;
+    let tile_h = screen_height() / ctx.tilemap.get_height() as f32;
     let mouse_point = vec2(mouse_position().0, mouse_position().1);
 
-    for hero in ctx.hero_service.entities_list() {
+    for hero in ctx.hero_store.iter() {
+        if !hero.initialized {
+            continue;
+        }
+
         draw_circle(
             hero.position.x as f32 * tile_w + tile_w / 2.0,
             hero.position.y as f32 * tile_h + tile_h / 2.0,
             tile_w.min(tile_h) * 0.4,
-            if hero.is_owner {
+            if hero.player == ctx.player_id {
                 color_convert("#FCA311")
             } else {
                 color_convert("#780000")
@@ -131,12 +124,6 @@ pub fn draw_heroes(ctx: &GameContext) {
             tile_w,
             tile_h,
         );
-
-        if rec.contains(mouse_point) {
-            for (i, field) in hero.fields_vec().iter().enumerate() {
-                draw_text(field, rec.x, rec.y + 40.0 + i as f32 * 18.0, 20.0, WHITE);
-            }
-        }
     }
 }
 
@@ -173,8 +160,8 @@ pub fn debug_position<S: AsRef<str>, U: AsRef<str>>(
     color: S,
     meta: U,
 ) {
-    let tile_w: f32 = screen_width() / ctx.map_state.width as f32;
-    let tile_h = screen_height() / ctx.map_state.height as f32;
+    let tile_w = screen_width() / ctx.tilemap.get_width() as f32;
+    let tile_h = screen_height() / ctx.tilemap.get_height() as f32;
 
     let rec = Rect::new(
         position.x as f32 * tile_w,
@@ -186,4 +173,11 @@ pub fn debug_position<S: AsRef<str>, U: AsRef<str>>(
     draw_rectangle(rec.x, rec.y, tile_w, tile_h, color_convert(color));
 
     draw_tile_text(meta.as_ref(), position, tile_w, tile_h, 20.0, BLACK);
+}
+
+pub async fn render_context(game_context: &GameContext) {
+    clear_background(BLACK);
+    draw_map(game_context);
+    draw_heroes(game_context);
+    next_frame().await
 }

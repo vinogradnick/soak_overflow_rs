@@ -1,4 +1,4 @@
-use crate::{data::context::GameContext, data::position::Position};
+use crate::data::{game_context::GameContext, position::Position};
 
 pub fn can_reach(ctx: &GameContext, start: &Position, goal: &Position) -> bool {
     use std::collections::VecDeque;
@@ -15,11 +15,9 @@ pub fn can_reach(ctx: &GameContext, start: &Position, goal: &Position) -> bool {
             continue;
         }
 
-        for next in ctx.map_state.neighbors(&pos) {
-            if let Some(tile) = ctx.map_state.get_tile(next.position.x, next.position.y) {
-                if tile.is_walkable() {
-                    queue.push_back(next.position);
-                }
+        for next in ctx.tilemap.neighbors(&pos) {
+            if ctx.tilemap.get_view(next).0 == 0 {
+                queue.push_back(next);
             }
         }
     }

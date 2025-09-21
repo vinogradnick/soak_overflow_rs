@@ -27,12 +27,18 @@ impl Add<(usize, usize)> for Position {
         }
     }
 }
-impl From<(i32, i32)> for Position {
-    fn from(value: (i32, i32)) -> Self {
+impl From<(usize, usize)> for Position {
+    fn from(value: (usize, usize)) -> Self {
         Position {
-            x: value.0 as usize,
-            y: value.1 as usize,
+            x: value.0,
+            y: value.1,
         }
+    }
+}
+
+impl From<Position> for (usize, usize) {
+    fn from(pos: Position) -> Self {
+        (pos.x, pos.y)
     }
 }
 
@@ -177,5 +183,18 @@ impl Position {
 impl Display for Position {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} {}", self.x, self.y)
+    }
+}
+
+pub struct PositionUtil;
+
+impl PositionUtil {
+    pub fn multi_distance((x1, y1): (usize, usize), (x2, y2): (usize, usize)) -> usize {
+        (x1 as isize - x2 as isize)
+            .abs()
+            .max((y1 as isize - y2 as isize).abs()) as usize
+    }
+    pub fn dist_raw((x1, y1): (usize, usize), (x2, y2): (usize, usize)) -> i32 {
+        (x2 as i32 - x1 as i32).abs() + (y2 as i32 - y1 as i32).abs()
     }
 }
