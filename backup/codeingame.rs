@@ -1,57 +1,25 @@
-use crate::{
-    data::{
-        context::GameContext,
-        map_state::{MapState, Occupant, TileType},
-    },
-    hero::hero_service::HeroService,
-    io::{cg_reader::CGReader, reader::Reader},
-    systems::strategy::{SaveStrategy, Strategy},
-};
-
 pub mod data;
-pub mod hero;
-pub mod io;
+pub mod logger;
+pub mod reader;
+pub mod strategy;
 pub mod systems;
-pub mod utils;
-// pub mod viz;
+use crate::{data::game_context::GameContext, reader::Reader, strategy::Strategy};
 
-/**
- * Win the water fight by controlling the most territory, or out-soak your opponent!
- **/
 fn main() {
-    let mut strat = SaveStrategy::new();
-    let mut reader = CGReader::new(true);
-    let id = reader.read_i32();
-    let mut hero_service = HeroService::new(id);
-    hero_service.read_profile(&mut reader);
-    let mut map_state = MapState::from_input(&mut reader);
+    let mut ctx = GameContext::new();
+    let io_reader = Reader::CodeingameReader;
+    io_reader.read_id(&mut ctx);
+    io_reader.read_profiles(&mut ctx);
+    io_reader.read_tilemap(&mut ctx);
 
-    // game loop
     loop {
-        hero_service.read_entity(&mut reader);
-        hero_service.entities_list().for_each(|&x| {
-            map_state.update_tile(
-                x.position.x as usize,
-                x.position.y as usize,
-                TileType::Empty,
-                if x.is_owner {
-                    Occupant::OwnerHero(x.agent_id)
-                } else {
-                    Occupant::EnemyHero(x.agent_id)
-                },
-            )
-        });
-        // map_state.print();
-
-        let context = GameContext::new(&hero_service, &map_state);
-        let my_agent_count = reader.get_count(); // Number of alive agents controlled by you
-        let actions = strat.execute(&context, my_agent_count);
-        for i in &actions {
-            match reader.step(i) {
-                Ok(_) => {}
-                Err(err) => {
-                    eprintln!("{:?}", err);
-                }
+        io_reader.read_entities(&mut ctx);
+        let my_agent_count = io_reader.read_number(&mut ctx); // Number of alive agents controlled by you
+        let commands = Strategy::do_action(&ctx);
+        match io_reader.receive_action(&mut ctx, commands) {
+            Ok(_) => {}
+            Err(data) => {
+                eprintln!("{}", data);
             }
         }
     }

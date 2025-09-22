@@ -1,10 +1,12 @@
 use std::{fmt::Debug, io, str::FromStr};
 
-use crate::data::{
+use crate::{data::{
     game_context::GameContext,
     hero::{Hero, HeroCommand, HeroStore},
+    position::Position,
+    tile::{Occupant, TileType, TileView},
     tilemap::TileMap,
-};
+}, simulator::simulator_action};
 
 pub enum Reader {
     CodeingameReader,
@@ -44,19 +46,22 @@ impl Reader {
     pub fn read_number(&self, ctx: &mut GameContext) -> usize {
         match self {
             Reader::CodeingameReader => read_number(),
-            Reader::SimulatorReader(_) => ctx
-                .hero_store
-                .iter()
-                .filter(|x| x.player == ctx.player_id)
-                .count(),
+            Reader::SimulatorReader(_) => ctx.hero_store.heroes.len(),
         }
     }
 
     pub fn read_entities(&self, ctx: &mut GameContext) {
-        eprintln!("read_entities");
+        for it in ctx.tilemap.tiles.iter_mut() {
+            it.occupant = Occupant::Nil;
+        }
+
         match self {
             Reader::CodeingameReader => {
                 let agent_count = read_number::<usize>(); // Total number of agents still in the game
+
+                let heroes = ctx.hero_store.heroes.clone();
+
+                ctx.hero_store.heroes.clear();
 
                 for i in 0..agent_count as usize {
                     let mut input_line = String::new();
@@ -67,16 +72,22 @@ impl Reader {
                         .map(|f| read_number_str::<i32>(f))
                         .collect::<Vec<_>>();
 
+                    let hero_id = inputs[0] as usize;
+                    let current = heroes.get(&hero_id).unwrap();
+
                     ctx.hero_store.update_hero(
-                        inputs[0] as usize,
+                        hero_id,
                         &Hero {
-                            agent_id: inputs[0],
-                            player: -1,
-                            shoot_cooldown: -1,
-                            optimal_range: -1,
-                            soaking_power: -1,
+                            agent_id: hero_id,
+                            is_owner: current.is_owner,
+                            shoot_cooldown: current.shoot_cooldown,
+                            optimal_range: current.optimal_range,
+                            soaking_power: current.soaking_power,
                             splash_bombs: inputs[4],
-                            position: (inputs[1] as usize, inputs[2] as usize).into(),
+                            position: Position {
+                                x: inputs[1] as usize,
+                                y: inputs[2] as usize,
+                            },
                             cooldown: inputs[3],
                             wetness: inputs[5],
                             initialized: true,
@@ -85,7 +96,14 @@ impl Reader {
                 }
             }
             Reader::SimulatorReader(_) => {
-                if ctx.hero_store.initialized.iter().filter(|&&x| x).count() == 0 {
+                if ctx
+                    .hero_store
+                    .heroes
+                    .values()
+                    .filter(|x| x.initialized)
+                    .count()
+                    == 0
+                {
                     let agent_count = read_number::<usize>(); // Total number of agents still in the game
 
                     for i in 0..agent_count as usize {
@@ -96,17 +114,23 @@ impl Reader {
                             .split(" ")
                             .map(|f| read_number_str::<i32>(f))
                             .collect::<Vec<_>>();
+                        let hero_id = inputs[0] as usize;
+
+                        let current = ctx.hero_store.heroes.get(&hero_id).unwrap();
 
                         ctx.hero_store.update_hero(
-                            inputs[0] as usize,
+                            current.agent_id,
                             &Hero {
-                                agent_id: inputs[0],
-                                player: -1,
-                                shoot_cooldown: -1,
-                                optimal_range: -1,
-                                soaking_power: -1,
+                                agent_id: current.agent_id,
+                                is_owner: current.is_owner,
+                                shoot_cooldown: current.shoot_cooldown,
+                                optimal_range: current.optimal_range,
+                                soaking_power: current.soaking_power,
                                 splash_bombs: inputs[4],
-                                position: (inputs[1] as usize, inputs[2] as usize).into(),
+                                position: Position {
+                                    x: inputs[1] as usize,
+                                    y: inputs[2] as usize,
+                                },
                                 cooldown: inputs[3],
                                 wetness: inputs[5],
                                 initialized: true,
@@ -114,15 +138,18 @@ impl Reader {
                         );
                     }
                 }
+            }
+        };
 
-                ctx.hero_store.iter().for_each(|hero| {
-                    if ctx.player_id != hero.agent_id {
-                        ctx.tilemap.set_tile_enemy(
-                            ctx.tilemap.get_index_raw(hero.position.into()),
-                            hero.agent_id,
-                        );
-                    }
-                });
+        for hero in ctx.hero_store.heroes.values() {
+            let tile = ctx.tilemap.get_tile_mut(&hero.position);
+
+            if let Some(t_mut) = tile {
+                if hero.is_owner {
+                    t_mut.occupant = Occupant::Owner(hero.agent_id);
+                } else {
+                    t_mut.occupant = Occupant::Enemy(hero.agent_id);
+                }
             }
         }
     }
@@ -145,16 +172,22 @@ impl Reader {
                 let y: usize = read_number_str(inputs[3 * j + 1]); // Y coordinate, 0 is top edge
                 let tile_type = read_number_str(inputs[3 * j + 2]);
 
-                ctx.tilemap
-                    .set_tile(ctx.tilemap.get_index((x, y)), &[tile_type]);
+                ctx.tilemap.tiles[y * width + x] = TileView {
+                    position: Position { x, y },
+                    tile_type: match tile_type {
+                        1 => TileType::LowWall,
+                        2 => TileType::HighWall,
+                        _ => TileType::Empty,
+                    },
+                    occupant: Occupant::Nil,
+                };
             }
         }
     }
     pub fn read_profiles(&self, ctx: &mut GameContext) {
-        eprintln!("read_profiles");
         let agent_data_count = read_number::<usize>(); // Total number of agents in the game
 
-        ctx.hero_store = HeroStore::new_count(agent_data_count + 1);
+        ctx.hero_store = HeroStore::new();
         for i in 0..agent_data_count as usize {
             let mut input_line = String::new();
             io::stdin().read_line(&mut input_line).unwrap();
@@ -165,13 +198,13 @@ impl Reader {
                 .collect::<Vec<_>>();
             // Создаём героя
             let hero = Hero {
-                agent_id: inputs[0],
-                player: inputs[1],
+                agent_id: inputs[0] as usize,
+                is_owner: ctx.player_id == inputs[1],
                 shoot_cooldown: inputs[2],
                 optimal_range: inputs[3],
                 soaking_power: inputs[4],
                 splash_bombs: inputs[5],
-                position: (0, 0).into(), // если позиция читается позже
+                position: Position::default(), // если позиция читается позже
                 cooldown: 0,
                 wetness: 0,
                 initialized: false,
@@ -187,28 +220,22 @@ impl Reader {
         ctx.player_id = id;
     }
 
-    pub fn receive_action(&self, ctx: &mut GameContext, actions: Vec<HeroCommand>) {
+    pub fn receive_action(
+        &self,
+        ctx: &mut GameContext,
+        actions: Vec<HeroCommand>,
+    ) -> Result<(), String> {
         match self {
-            Reader::CodeingameReader => {
-                for act in actions {
-                    println!("{}", act);
-                }
-            }
-            Reader::SimulatorReader(_) => {
-                for act in actions {
-                    let id = act.0;
-                    let loc_actions = act.1;
-
-                    for action in loc_actions {
-                        match action {
-                            crate::data::hero::HeroAction::Move(position) => todo!(),
-                            crate::data::hero::HeroAction::Throw(position) => todo!(),
-                            crate::data::hero::HeroAction::Shoot(_) => todo!(),
-                            crate::data::hero::HeroAction::Wait => todo!(),
-                        }
-                    }
-                }
-            }
+            Reader::CodeingameReader => codeingame_action(ctx, actions),
+            Reader::SimulatorReader(_) => simulator_action(ctx, actions),
         }
     }
+}
+
+
+fn codeingame_action(ctx: &mut GameContext, actions: Vec<HeroCommand>) -> Result<(), String> {
+    for act in actions {
+        println!("{}", act);
+    }
+    Ok(())
 }

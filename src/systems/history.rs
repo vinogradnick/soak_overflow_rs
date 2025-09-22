@@ -2,32 +2,50 @@ use crate::data::game_context::GameContext;
 
 pub struct HistorySystem {
     data: Vec<GameContext>,
-    cursor: usize,
+    cursor: usize, // указывает на текущую позицию
+    capacity: usize,
 }
 
 impl HistorySystem {
-    pub fn new() -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
-            data: vec![],
+            data: Vec::with_capacity(capacity),
             cursor: 0,
+            capacity,
         }
-    }
-    pub fn next(&mut self) -> Option<&GameContext> {
-        let ctx = self.data.get(self.cursor);
-        self.cursor += 1;
-        return ctx;
-    }
-    pub fn prev(&mut self) -> Option<&GameContext> {
-        let ctx = self.data.get(self.cursor);
-        self.cursor -= 1;
-        return ctx;
     }
 
-    pub fn apply(&mut self, ctx: &GameContext) {
-        if self.data.len() > 5 {
-            self.cursor = 0;
-            self.data.clear();
+    pub fn current(&self) -> Option<&GameContext> {
+        self.data.get(self.cursor)
+    }
+
+    pub fn next(&mut self) -> Option<&GameContext> {
+        if self.cursor + 1 < self.data.len() {
+            self.cursor += 1;
         }
-        self.data.push(ctx.clone());
+        self.data.get(self.cursor)
+    }
+
+    pub fn prev(&mut self) -> Option<&GameContext> {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+        }
+        self.data.get(self.cursor)
+    }
+
+    pub fn apply(&mut self, ctx: GameContext) {
+        // если мы находимся не в конце истории — отрезаем "ветку"
+        if self.cursor + 1 < self.data.len() {
+            self.data.truncate(self.cursor + 1);
+        }
+
+        self.data.push(ctx);
+
+        // ограничение по capacity
+        if self.data.len() > self.capacity {
+            self.data.remove(0);
+        }
+
+        self.cursor = self.data.len() - 1;
     }
 }

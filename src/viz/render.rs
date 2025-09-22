@@ -1,4 +1,6 @@
-use crate::data::{game_context::GameContext, hero::HeroCommand, position::Position};
+use crate::data::{
+    game_context::GameContext, hero::HeroCommand, position::Position, tile::TileType,
+};
 
 use macroquad::prelude::*;
 
@@ -42,12 +44,26 @@ fn color_convert<S: AsRef<str>>(s: S) -> Color {
     )
 }
 
+// Хелпер для рендера свойств справа
+fn draw_properties<T: std::fmt::Debug>(object: &T, start_y: f32, color: Color) {
+    let props = format!("{:#?}", object); // pretty debug формат
+    let x = screen_width() - 250.0; // отступ от правого края
+    let line_height = 20.0;
+
+    for (i, line) in props.lines().enumerate() {
+        draw_text(line, x, start_y + (i as f32) * line_height, 20.0, color);
+    }
+}
+
 pub fn draw_map(ctx: &GameContext) {
     let tile_w = screen_width() / ctx.tilemap.get_width() as f32;
     let tile_h = screen_height() / ctx.tilemap.get_height() as f32;
     let mouse_point = vec2(mouse_position().0, mouse_position().1);
 
-    for (tile_type, enemy_id, position) in ctx.tilemap.iter() {
+    for tile in &ctx.tilemap.tiles {
+        let position = &tile.position;
+        let tile_type = &tile.tile_type;
+
         let rec = Rect::new(
             position.x as f32 * tile_w,
             position.y as f32 * tile_h,
@@ -61,21 +77,15 @@ pub fn draw_map(ctx: &GameContext) {
             tile_w,
             tile_h,
             match tile_type {
-                1 => color_convert("#669BBC"),
-                2 => color_convert("#003049"),
+                TileType::LowWall => color_convert("#669BBC"),
+                TileType::HighWall => color_convert("#003049"),
                 _ => color_convert("#000000"),
             },
         );
         draw_rectangle_lines(rec.x, rec.y, tile_w, tile_h, 1.0, color_convert("#14213D"));
 
         if rec.contains(mouse_point) {
-            draw_text(
-                format!("TileType:{}", tile_type).as_str(),
-                rec.x,
-                rec.y + 20.0,
-                20.0,
-                GREEN,
-            );
+            // draw_properties(tile, 0.0, WHITE);
             draw_tile_text(
                 format!("{}", position).as_str(),
                 &position,
@@ -94,7 +104,7 @@ pub fn draw_heroes(ctx: &GameContext) {
     let tile_h = screen_height() / ctx.tilemap.get_height() as f32;
     let mouse_point = vec2(mouse_position().0, mouse_position().1);
 
-    for hero in ctx.hero_store.iter() {
+    for hero in ctx.hero_store.heroes.values() {
         if !hero.initialized {
             continue;
         }
@@ -103,7 +113,7 @@ pub fn draw_heroes(ctx: &GameContext) {
             hero.position.x as f32 * tile_w + tile_w / 2.0,
             hero.position.y as f32 * tile_h + tile_h / 2.0,
             tile_w.min(tile_h) * 0.4,
-            if hero.player == ctx.player_id {
+            if hero.is_owner {
                 color_convert("#FCA311")
             } else {
                 color_convert("#780000")
@@ -175,9 +185,31 @@ pub fn debug_position<S: AsRef<str>, U: AsRef<str>>(
     draw_tile_text(meta.as_ref(), position, tile_w, tile_h, 20.0, BLACK);
 }
 
-pub async fn render_context(game_context: &GameContext) {
-    clear_background(BLACK);
-    draw_map(game_context);
-    draw_heroes(game_context);
-    next_frame().await
+pub fn render_context(ctx: &GameContext) {
+    let tile_w = screen_width() / ctx.tilemap.get_width() as f32;
+    let tile_h = screen_height() / ctx.tilemap.get_height() as f32;
+    let mouse_point = vec2(mouse_position().0, mouse_position().1);
+
+    for tile in &ctx.tilemap.tiles {
+        let position = &tile.position;
+
+        let rec = Rect::new(
+            position.x as f32 * tile_w,
+            position.y as f32 * tile_h,
+            tile_w,
+            tile_h,
+        );
+        let hero = ctx
+            .hero_store
+            .heroes
+            .values()
+            .find(|x| x.position == tile.position);
+
+        if rec.contains(mouse_point) {
+            if let Some(h) = hero {
+                draw_properties(h, 200.0, WHITE);
+            }
+            draw_properties(tile, 20.0, WHITE);
+        }
+    }
 }

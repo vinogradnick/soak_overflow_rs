@@ -1,3 +1,4 @@
-pub mod pathfinder;
 pub mod history;
-pub mod system;
+pub mod pathfinder;
+pub mod bomber;
+pub mod score_system;
