@@ -47,6 +47,17 @@ impl Position {
         let y2 = other.y as i32;
         (x2 - x1).abs() + (y2 - y1).abs()
     }
+    pub fn is_linear(lhs: &Position, rhs: &Position) -> bool {
+        lhs.x == rhs.x || lhs.y == rhs.y
+    }
+
+    pub fn dir(&self, other: &Position) -> (i32, i32) {
+        let x1 = self.x as i32;
+        let y1 = self.y as i32;
+        let x2 = other.x as i32;
+        let y2 = other.y as i32;
+        ((x2 - x1), (y2 - y1))
+    }
 }
 
 pub fn is_between<T>(value: T, min: T, max: T) -> bool

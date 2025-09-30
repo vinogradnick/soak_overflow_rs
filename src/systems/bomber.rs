@@ -128,7 +128,7 @@ pub fn find_bomb_all(ctx: &GameContext, hero: &Hero) -> Option<[Position; 2]> {
     let closet_value = count_adjacent_units(ctx, hero);
 
     if closet_value > 1 {
-        eprintln!("Hero[{0}]->{closet_value}", hero.agent_id);
+        // eprintln!("Hero[{0}]->{closet_value}", hero.agent_id);
         return occupantion_bombing(ctx, hero);
     }
 

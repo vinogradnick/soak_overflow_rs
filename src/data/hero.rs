@@ -68,7 +68,7 @@ impl HeroStore {
 pub enum HeroAction {
     Move(Position),
     Throw(Position),
-    Shoot(i32), // agent_id цели
+    Shoot(usize), // agent_id цели
     Wait,
 }
 

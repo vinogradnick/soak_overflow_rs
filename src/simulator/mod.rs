@@ -1,6 +1,9 @@
 use crate::{
     data::{
-        game_context::GameContext, hero::{Hero, HeroAction, HeroCommand}, position::Position, tile::Occupant
+        game_context::GameContext,
+        hero::{Hero, HeroAction, HeroCommand},
+        position::Position,
+        tile::Occupant,
     },
     systems::pathfinder,
 };
@@ -56,7 +59,15 @@ pub fn simulator_action(ctx: &mut GameContext, actions: Vec<HeroCommand>) -> Res
                             };
                         }
                     }
-                    HeroAction::Shoot(_) => todo!(),
+                    HeroAction::Shoot(id) => {
+                        let target = ctx.hero_store.heroes.get_mut(&(id as usize));
+                        match target {
+                            Some(hero_item) => {
+                                hero_item.wetness += 6;
+                            }
+                            None => {}
+                        }
+                    }
                     HeroAction::Wait => {}
                 }
             }
@@ -92,14 +103,26 @@ pub fn apply_move_action(
 
                     ctx.hero_store.update_hero(hero.agent_id, &hero_clone);
 
+                    let tile = ctx.tilemap.get_tile_mut(&p);
+                    if let Some(t) = tile {
+                        t.occupant = Occupant::Owner(hero.agent_id);
+                    }
+
                     return Ok(());
                 }
             }
         }
     } else {
-        let mut hero_clone = hero.clone();
-        hero_clone.position = position.clone();
-        ctx.hero_store.update_hero(hero.agent_id, &hero_clone);
+        {
+            let mut hero_clone = hero.clone();
+            hero_clone.position = position.clone();
+            ctx.hero_store.update_hero(hero.agent_id, &hero_clone);
+
+            let tile = ctx.tilemap.get_tile_mut(position);
+            if let Some(t) = tile {
+                t.occupant = Occupant::Owner(hero.agent_id);
+            }
+        }
     };
     Ok(())
 }

@@ -80,7 +80,7 @@ pub mod data {
         pub enum HeroAction {
             Move(Position),
             Throw(Position),
-            Shoot(i32),
+            Shoot(usize),
             Wait,
         }
         impl fmt::Display for HeroAction {
@@ -102,6 +102,29 @@ pub mod data {
             }
         }
     }
+    pub mod meta {
+        use std::any::Any;
+        use std::collections::HashMap;
+        pub struct MetaContext {
+            map: HashMap<String, Box<dyn Any>>,
+        }
+        impl MetaContext {
+            pub fn new() -> Self {
+                Self {
+                    map: HashMap::new(),
+                }
+            }
+            pub fn add<T: 'static>(&mut self, key: String, value: T) {
+                self.map.insert(key, Box::new(value));
+            }
+            pub fn get<T: 'static>(&self, key: &str) -> Option<&T> {
+                self.map.get(key)?.downcast_ref::<T>()
+            }
+            pub fn remove(&mut self, key: &str) {
+                self.map.remove(key);
+            }
+        }
+    }
     pub mod position {
         use std::fmt::{Debug, Display};
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -110,7 +133,16 @@ pub mod data {
             pub y: usize,
         }
         impl Position {
-            pub const WAYPOINTS: [(i32, i32); 8] = generate_directions();
+            pub const WAYPOINTS: [(i32, i32); 8] = [
+                (-1, -1),
+                (0, -1),
+                (1, -1),
+                (-1, 0),
+                (1, 0),
+                (-1, 1),
+                (0, 1),
+                (1, 1),
+            ];
             pub const DIRECTIONS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
         }
         impl Display for Position {
@@ -126,18 +158,6 @@ pub mod data {
                 }
             }
         }
-        pub const fn generate_directions() -> [(i32, i32); 8] {
-            [
-                (-1, -1),
-                (0, -1),
-                (1, -1),
-                (-1, 0),
-                (1, 0),
-                (-1, 1),
-                (0, 1),
-                (1, 1),
-            ]
-        }
         impl Position {
             pub fn distance_8x(&self, other: &Position) -> i32 {
                 let dx = (self.x as i32 - other.x as i32).abs();
@@ -150,6 +170,16 @@ pub mod data {
                 let x2 = other.x as i32;
                 let y2 = other.y as i32;
                 (x2 - x1).abs() + (y2 - y1).abs()
+            }
+            pub fn is_linear(lhs: &Position, rhs: &Position) -> bool {
+                lhs.x == rhs.x || lhs.y == rhs.y
+            }
+            pub fn dir(&self, other: &Position) -> (i32, i32) {
+                let x1 = self.x as i32;
+                let y1 = self.y as i32;
+                let x2 = other.x as i32;
+                let y2 = other.y as i32;
+                ((x2 - x1), (y2 - y1))
             }
         }
         pub fn is_between<T>(value: T, min: T, max: T) -> bool
@@ -195,6 +225,24 @@ pub mod data {
             HighWall = 0,
             LowWall = 1,
             Empty = 2,
+        }
+        impl From<TileType> for i32 {
+            fn from(value: TileType) -> Self {
+                match value {
+                    TileType::HighWall => 2,
+                    TileType::LowWall => 1,
+                    TileType::Empty => 0,
+                }
+            }
+        }
+        impl From<TileType> for f32 {
+            fn from(value: TileType) -> Self {
+                match value {
+                    TileType::HighWall => 0.75,
+                    TileType::LowWall => 0.5,
+                    TileType::Empty => 0.0,
+                }
+            }
         }
         impl Default for TileType {
             fn default() -> Self {
@@ -247,7 +295,10 @@ pub mod data {
         }
     }
     pub mod tilemap {
-        use crate::data::{position::Position, tile::TileView};
+        use crate::data::{
+            position::Position,
+            tile::{TileType, TileView},
+        };
         #[derive(Debug, Clone)]
         pub struct TileMap {
             height: usize,
@@ -291,6 +342,10 @@ pub mod data {
             pub fn get_width(&self) -> usize {
                 self.width
             }
+            #[inline]
+            pub fn to_index(&self, position: &Position) -> usize {
+                position.y * self.width + position.x
+            }
             pub fn neighbors(&self, from: &Position) -> Vec<Position> {
                 let mut v = vec![];
                 for (x, y) in Position::DIRECTIONS {
@@ -320,6 +375,16 @@ pub mod data {
                     });
                 }
                 v
+            }
+            pub fn near_tile_pos(
+                &self,
+                position: &Position,
+                tile_type: TileType,
+            ) -> Option<&TileView> {
+                self.tiles
+                    .iter()
+                    .filter(|&x| x.tile_type == tile_type && !x.is_ocuped())
+                    .min_by_key(|x| x.position.distance(&position))
             }
         }
     }
@@ -453,18 +518,14 @@ pub mod logger {
     }
 }
 pub mod reader {
-    use crate::{
-        data::{
-            game_context::GameContext,
-            hero::{Hero, HeroAction, HeroCommand, HeroStore},
-            position::Position,
-            tile::{Occupant, TileType, TileView},
-            tilemap::TileMap,
-            tilemap_iter::Neighbors,
-        },
-        logger,
-        systems::pathfinder,
+    use crate::data::{
+        game_context::GameContext,
+        hero::{Hero, HeroCommand, HeroStore},
+        position::Position,
+        tile::{Occupant, TileType, TileView},
+        tilemap::TileMap,
     };
+    use crate::simulator::simulator_action;
     use std::{fmt::Debug, io, str::FromStr};
     pub enum Reader {
         CodeingameReader,
@@ -671,7 +732,22 @@ pub mod reader {
         }
         Ok(())
     }
-    fn simulator_action(ctx: &mut GameContext, actions: Vec<HeroCommand>) -> Result<(), String> {
+}
+pub mod simulator {
+    use crate::{
+        data::{
+            game_context::GameContext,
+            hero::{Hero, HeroAction, HeroCommand},
+            position::Position,
+            tile::Occupant,
+        },
+        systems::pathfinder,
+    };
+    pub fn simulator_read_entities(ctx: &mut GameContext) {}
+    pub fn simulator_action(
+        ctx: &mut GameContext,
+        actions: Vec<HeroCommand>,
+    ) -> Result<(), String> {
         for act in actions {
             eprintln!("ACTION: {}", act);
             let id = act.0;
@@ -723,7 +799,15 @@ pub mod reader {
                                 };
                             }
                         }
-                        HeroAction::Shoot(_) => todo!(),
+                        HeroAction::Shoot(id) => {
+                            let target = ctx.hero_store.heroes.get_mut(&(id as usize));
+                            match target {
+                                Some(hero_item) => {
+                                    hero_item.wetness += 6;
+                                }
+                                None => {}
+                            }
+                        }
                         HeroAction::Wait => {}
                     }
                 }
@@ -731,7 +815,7 @@ pub mod reader {
         }
         Ok(())
     }
-    fn apply_move_action(
+    pub fn apply_move_action(
         ctx: &mut GameContext,
         position: &Position,
         hero: &Hero,
@@ -769,20 +853,18 @@ pub mod strategy {
             game_context::GameContext,
             hero::{HeroAction, HeroCommand},
         },
-        systems::bomber::find_bomb_all,
+        systems::{actor::select_action, cover::CoverQuery, judge::JudgeService},
     };
     pub struct Strategy;
     impl Strategy {
         pub fn do_action(ctx: &GameContext) -> Vec<HeroCommand> {
             let mut commands = vec![];
+            let cover = CoverQuery::evaluate(ctx);
+            let score = JudgeService::evaluate_context(ctx);
+            eprintln!("OwnScore:{} EnemyScore:{}", score.0, score.1);
             for hero in ctx.hero_store.owns() {
                 let mut cmd = HeroCommand(hero.agent_id, vec![]);
-                match find_bomb_all(ctx, hero) {
-                    Some([movement, bomb]) => {
-                        cmd.1 = vec![HeroAction::Move(movement), HeroAction::Throw(bomb)]
-                    }
-                    None => {}
-                }
+                cmd.1 = select_action(ctx, hero, &cover, score);
                 if cmd.1.len() == 0 {
                     cmd.1.push(HeroAction::Wait);
                 }
@@ -793,113 +875,6 @@ pub mod strategy {
     }
 }
 pub mod systems {
-    pub mod history {
-        use crate::data::game_context::GameContext;
-        pub struct HistorySystem {
-            data: Vec<GameContext>,
-            cursor: usize,
-            capacity: usize,
-        }
-        impl HistorySystem {
-            pub fn new(capacity: usize) -> Self {
-                Self {
-                    data: Vec::with_capacity(capacity),
-                    cursor: 0,
-                    capacity,
-                }
-            }
-            pub fn current(&self) -> Option<&GameContext> {
-                self.data.get(self.cursor)
-            }
-            pub fn next(&mut self) -> Option<&GameContext> {
-                if self.cursor + 1 < self.data.len() {
-                    self.cursor += 1;
-                }
-                self.data.get(self.cursor)
-            }
-            pub fn prev(&mut self) -> Option<&GameContext> {
-                if self.cursor > 0 {
-                    self.cursor -= 1;
-                }
-                self.data.get(self.cursor)
-            }
-            pub fn apply(&mut self, ctx: GameContext) {
-                if self.cursor + 1 < self.data.len() {
-                    self.data.truncate(self.cursor + 1);
-                }
-                self.data.push(ctx);
-                if self.data.len() > self.capacity {
-                    self.data.remove(0);
-                }
-                self.cursor = self.data.len() - 1;
-            }
-        }
-    }
-    pub mod pathfinder {
-        use crate::data::{game_context::GameContext, position::Position, tilemap_iter::Neighbors};
-        use std::collections::{HashMap, HashSet, VecDeque};
-        pub fn can_reach(ctx: &GameContext, start: &Position, goal: &Position) -> bool {
-            use std::collections::VecDeque;
-            let mut visited = std::collections::HashSet::new();
-            let mut queue = VecDeque::new();
-            queue.push_back(start.clone());
-            while let Some(pos) = queue.pop_front() {
-                if pos == goal.clone() {
-                    return true;
-                }
-                if !visited.insert(pos) {
-                    continue;
-                }
-                for next in Neighbors::new(&ctx.tilemap, pos, false) {
-                    if ctx
-                        .tilemap
-                        .get_tile(&next.position)
-                        .is_some_and(|x| x.is_free())
-                    {
-                        queue.push_back(next.position);
-                    }
-                }
-            }
-            false
-        }
-        pub fn find_path(
-            ctx: &GameContext,
-            start: &Position,
-            goal: &Position,
-        ) -> Option<Vec<Position>> {
-            let mut visited = HashSet::new();
-            let mut parents: HashMap<Position, Position> = HashMap::new();
-            let mut queue = VecDeque::new();
-            queue.push_back(*start);
-            while let Some(pos) = queue.pop_front() {
-                if pos == *goal {
-                    let mut path = vec![pos];
-                    let mut current = pos;
-                    while let Some(parent) = parents.get(&current) {
-                        path.push(*parent);
-                        current = *parent;
-                    }
-                    path.reverse();
-                    return Some(path);
-                }
-                if !visited.insert(pos) {
-                    continue;
-                }
-                for next in Neighbors::new(&ctx.tilemap, pos, false) {
-                    if ctx
-                        .tilemap
-                        .get_tile(&next.position)
-                        .is_some_and(|x| x.is_free())
-                        && !visited.contains(&next.position)
-                    {
-                        parents.insert(next.position, pos);
-                        queue.push_back(next.position);
-                    }
-                }
-            }
-            None
-        }
-    }
     pub mod bomber {
         use crate::{
             data::{game_context::GameContext, hero::Hero, position::Position},
@@ -999,7 +974,6 @@ pub mod systems {
         pub fn find_bomb_all(ctx: &GameContext, hero: &Hero) -> Option<[Position; 2]> {
             let closet_value = count_adjacent_units(ctx, hero);
             if closet_value > 1 {
-                eprintln!("Hero[{0}]->{closet_value}", hero.agent_id);
                 return occupantion_bombing(ctx, hero);
             }
             let target = find_bomb_target(ctx, hero);
@@ -1012,6 +986,227 @@ pub mod systems {
                 }
             }
             None
+        }
+    }
+    pub mod cover {
+        use crate::data::{
+            game_context::GameContext,
+            hero::Hero,
+            position::{is_between, Position},
+        };
+        pub struct CoverQuery;
+        impl CoverQuery {
+            pub fn is_covered_hero_position(ctx: &GameContext, hero: &Hero) -> bool {
+                let covers = CoverQuery::all_cover_positions(ctx);
+                for cov in &covers {
+                    if hero.position.eq(cov) {
+                        return true;
+                    }
+                }
+                false
+            }
+            pub fn all_cover_positions(ctx: &GameContext) -> Vec<Position> {
+                let mut items = vec![];
+                for item in &ctx.tilemap.tiles {
+                    if !item.is_cover() || item.is_ocuped() {
+                        continue;
+                    }
+                    for near in ctx.tilemap.neighbors(&item.position) {
+                        if !Position::is_linear(&item.position, &near) {
+                            continue;
+                        }
+                        items.push(near);
+                    }
+                }
+                return items;
+            }
+            pub fn evaluate(ctx: &GameContext) -> Vec<(Position, i32)> {
+                let mut score = vec![];
+                let enemies: Vec<_> = ctx.hero_store.enemies().collect();
+                for item in &ctx.tilemap.tiles {
+                    if !item.is_cover() || item.is_ocuped() {
+                        continue;
+                    }
+                    for near in ctx.tilemap.neighbors(&item.position) {
+                        if enemies.iter().any(|x| {
+                            x.position.distance(&near) <= 2
+                                || is_between(near.x, item.position.x, x.position.x)
+                        }) {
+                            continue;
+                        }
+                        if ctx.tilemap.get_tile(&near).is_some_and(|x| x.is_ocuped()) {
+                            continue;
+                        }
+                        score.push((near, item.tile_type.into()));
+                    }
+                }
+                for item in &score {}
+                return score;
+            }
+        }
+    }
+    pub mod pathfinder {
+        use crate::data::{game_context::GameContext, position::Position, tilemap_iter::Neighbors};
+        use std::collections::{HashMap, HashSet, VecDeque};
+        pub fn can_reach(ctx: &GameContext, start: &Position, goal: &Position) -> bool {
+            use std::collections::VecDeque;
+            let mut visited = std::collections::HashSet::new();
+            let mut queue = VecDeque::new();
+            queue.push_back(start.clone());
+            while let Some(pos) = queue.pop_front() {
+                if pos == goal.clone() {
+                    return true;
+                }
+                if !visited.insert(pos) {
+                    continue;
+                }
+                for next in Neighbors::new(&ctx.tilemap, pos, false) {
+                    if ctx
+                        .tilemap
+                        .get_tile(&next.position)
+                        .is_some_and(|x| x.is_free())
+                    {
+                        queue.push_back(next.position);
+                    }
+                }
+            }
+            false
+        }
+        pub fn find_path(
+            ctx: &GameContext,
+            start: &Position,
+            goal: &Position,
+        ) -> Option<Vec<Position>> {
+            let mut visited = HashSet::new();
+            let mut parents: HashMap<Position, Position> = HashMap::new();
+            let mut queue = VecDeque::new();
+            queue.push_back(*start);
+            while let Some(pos) = queue.pop_front() {
+                if pos == *goal {
+                    let mut path = vec![pos];
+                    let mut current = pos;
+                    while let Some(parent) = parents.get(&current) {
+                        path.push(*parent);
+                        current = *parent;
+                    }
+                    path.reverse();
+                    return Some(path);
+                }
+                if !visited.insert(pos) {
+                    continue;
+                }
+                for next in Neighbors::new(&ctx.tilemap, pos, false) {
+                    if ctx
+                        .tilemap
+                        .get_tile(&next.position)
+                        .is_some_and(|x| x.is_free())
+                        && !visited.contains(&next.position)
+                    {
+                        parents.insert(next.position, pos);
+                        queue.push_back(next.position);
+                    }
+                }
+            }
+            None
+        }
+    }
+    pub mod shooter {
+        use crate::data::{
+            game_context::GameContext, hero::Hero, position::Position, tile::TileType,
+        };
+        pub struct ShooterQuery;
+        impl ShooterQuery {
+            pub fn get_target<'a>(ctx: &'a GameContext, hero: &'a Hero) -> Option<&'a Hero> {
+                return ctx
+                    .hero_store
+                    .enemies()
+                    .find(|enemy| enemy.position.distance(&hero.position) < hero.optimal_range);
+            }
+        }
+    }
+    pub mod actor {
+        use crate::{
+            data::{
+                game_context::GameContext,
+                hero::{Hero, HeroAction, HeroCommand},
+                position::Position,
+            },
+            systems::{cover::CoverQuery, judge::JudgeService, shooter::ShooterQuery},
+        };
+        pub struct Transitor {}
+        pub fn select_action(
+            ctx: &GameContext,
+            agent: &Hero,
+            cover: &Vec<(Position, i32)>,
+            prev_score: (i32, i32),
+        ) -> Vec<HeroAction> {
+            let mut actions = vec![];
+            if !CoverQuery::is_covered_hero_position(ctx, agent) {
+                let cover_position = cover.iter().find(|x| x.0.distance(&agent.position) < 4);
+                dbg!("CoverQuery::is_covered_hero_position", cover_position);
+                match cover_position {
+                    Some((position, _)) => {
+                        actions.push(HeroAction::Move(position.clone()));
+                    }
+                    None => {}
+                }
+            }
+            if agent.optimal_range > 2 {
+                let target = ShooterQuery::get_target(ctx, agent);
+                match target {
+                    Some(enemy) => actions.push(HeroAction::Shoot(enemy.agent_id)),
+                    None => {}
+                }
+            }
+            let changed =
+                JudgeService::apply_action_sim(ctx, HeroCommand(agent.agent_id, actions.clone()));
+            let diff = (prev_score.0 - changed.0, prev_score.1 - changed.1);
+            eprintln!(
+                "[{}]: Difference: OwnScore:{} EnemyScore:{} Actions:{:#?}",
+                agent.agent_id, diff.0, diff.1, actions,
+            );
+            return actions;
+        }
+    }
+    pub mod judge {
+        use crate::{
+            data::{game_context::GameContext, hero::HeroCommand},
+            simulator::simulator_action,
+        };
+        pub struct JudgeService;
+        impl JudgeService {
+            pub fn apply_action_sim(ctx: &GameContext, action: HeroCommand) -> (i32, i32) {
+                let mut cloned_context = ctx.clone();
+                let res = simulator_action(&mut cloned_context, vec![action]);
+                match res {
+                    Result::Ok(_) => JudgeService::evaluate_context(&cloned_context),
+                    _ => return (0, 0),
+                }
+            }
+            pub fn evaluate_context(ctx: &GameContext) -> (i32, i32) {
+                let mut enemy_score = 0;
+                let mut own_score = 0;
+                let enemies = ctx.hero_store.enemies().collect::<Vec<_>>();
+                let heroes = ctx.hero_store.owns().collect::<Vec<_>>();
+                for tile in &ctx.tilemap.tiles {
+                    let own_dist = heroes
+                        .iter()
+                        .map(|hero| hero.position.distance(&tile.position))
+                        .min()
+                        .unwrap_or(9999);
+                    let enemy_dist = enemies
+                        .iter()
+                        .map(|hero| hero.position.distance(&tile.position))
+                        .min()
+                        .unwrap_or(9999);
+                    if own_dist < enemy_dist {
+                        own_score += 1;
+                    } else if enemy_dist < own_dist {
+                        enemy_score += 1;
+                    }
+                }
+                return (own_score, enemy_score);
+            }
         }
     }
 }

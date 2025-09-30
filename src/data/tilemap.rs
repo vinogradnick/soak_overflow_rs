@@ -1,4 +1,7 @@
-use crate::data::{position::Position, tile::TileView};
+use crate::data::{
+    position::Position,
+    tile::{TileType, TileView},
+};
 
 #[derive(Debug, Clone)]
 pub struct TileMap {
@@ -48,6 +51,11 @@ impl TileMap {
     pub fn get_width(&self) -> usize {
         self.width
     }
+    #[inline]
+    pub fn to_index(&self, position: &Position) -> usize {
+        position.y * self.width + position.x
+    }
+
     pub fn neighbors(&self, from: &Position) -> Vec<Position> {
         let mut v = vec![];
 
@@ -83,5 +91,12 @@ impl TileMap {
             });
         }
         v
+    }
+
+    pub fn near_tile_pos(&self, position: &Position, tile_type: TileType) -> Option<&TileView> {
+        self.tiles
+            .iter()
+            .filter(|&x| x.tile_type == tile_type && !x.is_ocuped())
+            .min_by_key(|x| x.position.distance(&position))
     }
 }

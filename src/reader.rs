@@ -1,12 +1,13 @@
 use std::{fmt::Debug, io, str::FromStr};
 
-use crate::{data::{
+use crate::data::{
     game_context::GameContext,
     hero::{Hero, HeroCommand, HeroStore},
     position::Position,
     tile::{Occupant, TileType, TileView},
     tilemap::TileMap,
-}, simulator::simulator_action};
+};
+use crate::simulator::simulator_action;
 
 pub enum Reader {
     CodeingameReader,
@@ -231,7 +232,6 @@ impl Reader {
         }
     }
 }
-
 
 fn codeingame_action(ctx: &mut GameContext, actions: Vec<HeroCommand>) -> Result<(), String> {
     for act in actions {
