@@ -81,12 +81,12 @@ pub fn apply_move_action(
 ) -> Result<(), String> {
     let hero = source_hero.unwrap();
 
-    if !ctx
+    if ctx
         .tilemap
         .get_tile(&position)
-        .is_some_and(|tile| tile.is_free())
+        .is_none_or(|tile| !tile.is_free())
     {
-        return Ok(());
+        return Err("Tile Occuped".to_owned());
     }
 
     // eprintln!("apply_move_action:[{}] [{}]", position, hero.position);

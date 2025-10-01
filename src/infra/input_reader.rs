@@ -84,9 +84,6 @@ pub fn read_input() -> GameContext {
 }
 
 pub fn read_for_loop_update(ctx: &mut GameContext) -> Result<(), Box<dyn std::error::Error>> {
-    ctx.tilemap.tiles.iter_mut().for_each(|tile| {
-        tile.occupant = Occupant::Nil;
-    });
 
     ctx.hero_store.heroes.iter_mut().for_each(|hero| {
         let tile = ctx.tilemap.get_tile_mut(&hero.position).unwrap();
@@ -105,15 +102,15 @@ pub fn read_for_loop(ctx: &mut GameContext) -> Result<(), Box<dyn std::error::Er
     let mut input_line = String::new();
     io::stdin().read_line(&mut input_line)?;
 
+    ctx.tilemap.tiles.iter_mut().for_each(|tile| {
+        tile.occupant = Occupant::Nil;
+    });
+
     if input_line.is_empty() {
         return Ok(());
     }
 
     let agent_count = input_line.trim().parse::<i32>()?;
-
-    ctx.tilemap.tiles.iter_mut().for_each(|tile| {
-        tile.occupant = Occupant::Nil;
-    });
 
     for i in 0..agent_count as usize {
         let mut input_line = String::new();

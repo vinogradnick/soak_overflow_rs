@@ -48,7 +48,9 @@ async fn main() {
             match read_for_loop(&mut ctx) {
                 Ok(_) => {}
                 Err(err) => {
-                    read_for_loop_update(&mut ctx);
+                    if let Err(inner) = read_for_loop_update(&mut ctx) {
+                        eprintln!("ACTION:{}", inner);
+                    }
                     eprintln!("{:?}", err);
                 }
             }
