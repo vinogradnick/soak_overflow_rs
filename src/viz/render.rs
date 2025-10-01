@@ -1,6 +1,4 @@
-use crate::data::{
-    game_context::GameContext, hero::HeroCommand, position::Position, tile::TileType,
-};
+use crate::data::{game_context::GameContext, position::Position, tile::TileType};
 
 use macroquad::prelude::*;
 
@@ -104,8 +102,8 @@ pub fn draw_heroes(ctx: &GameContext) {
     let tile_h = screen_height() / ctx.tilemap.get_height() as f32;
     let mouse_point = vec2(mouse_position().0, mouse_position().1);
 
-    for hero in ctx.hero_store.heroes.values() {
-        if !hero.initialized {
+    for hero in &ctx.hero_store.heroes {
+        if !hero.alive {
             continue;
         }
 
@@ -133,18 +131,6 @@ pub fn draw_heroes(ctx: &GameContext) {
             hero.position.y as f32 * tile_h,
             tile_w,
             tile_h,
-        );
-    }
-}
-
-pub fn draw_actions(actions: &[HeroCommand]) {
-    for (i, act) in actions.iter().enumerate() {
-        draw_text(
-            format!("{:?}", act).as_str(),
-            screen_width() - 250.0,
-            screen_height() - (20.0 * (i as f32 + 1.0)),
-            20.0,
-            WHITE,
         );
     }
 }
@@ -202,7 +188,7 @@ pub fn render_context(ctx: &GameContext) {
         let hero = ctx
             .hero_store
             .heroes
-            .values()
+            .iter()
             .find(|x| x.position == tile.position);
 
         if rec.contains(mouse_point) {

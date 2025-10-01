@@ -15,7 +15,7 @@ impl TileMap {
         TileMap {
             height: h,
             width: w,
-            tiles: vec![TileView::default(); w * h],
+            tiles: Vec::with_capacity(h * w),
         }
     }
 

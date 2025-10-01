@@ -1,15 +1,16 @@
+pub mod core;
 pub mod data;
-pub mod logger;
-pub mod reader;
-pub mod simulator;
-pub mod strategy;
-pub mod systems;
+pub mod infra;
 pub mod viz;
 
 use crate::{
-    data::game_context::GameContext,
-    reader::Reader,
-    strategy::Strategy,
+    core::agg_system::AggSystem,
+    infra::{
+        input_reader::{read_for_loop, read_for_loop_update, read_input},
+        logger,
+        position_utils::find_cover_position,
+        simulator::simulator_action,
+    },
     viz::render::{draw_heroes, draw_map, render_context},
 };
 use macroquad::prelude::*;
@@ -20,15 +21,11 @@ use macroquad::prelude::*;
 
 #[macroquad::main("MyGame")]
 async fn main() {
-    let mut ctx = GameContext::new();
-
-    let io_reader = Reader::SimulatorReader(false);
-
-    io_reader.read_id(&mut ctx);
-    io_reader.read_profiles(&mut ctx);
-    io_reader.read_tilemap(&mut ctx);
+    let mut ctx = read_input();
+    let mut agg_system = AggSystem::new();
 
     let mut ticker = 0.0;
+    let mut iteration = 0;
 
     // game loop
     loop {
@@ -42,22 +39,29 @@ async fn main() {
         draw_heroes(&ctx);
 
         if is_key_down(KeyCode::R) {
-            Strategy::do_action(&ctx);
+            find_cover_position(&ctx, 1);
         }
 
         if ticker >= 1.0 {
-            io_reader.read_entities(&mut ctx);
-            io_reader.read_number(&mut ctx); // Number of alive agents controlled by you
-
-            let commands = Strategy::do_action(&ctx);
-            match io_reader.receive_action(&mut ctx, commands) {
+            logger::log(&iteration, "main::ticker");
+            iteration += 1;
+            match read_for_loop(&mut ctx) {
                 Ok(_) => {}
-                Err(data) => {
-                    eprintln!("{}", data);
+                Err(err) => {
+                    read_for_loop_update(&mut ctx);
+                    eprintln!("{:?}", err);
                 }
             }
 
-            ticker -= 1.0; // сбрасываем таймер, можно вычитать 1.0 чтобы не накапливался баг
+            let res = agg_system.process(&ctx);
+            if res.len() > 0 {
+                match simulator_action(&mut ctx, res) {
+                    Result::Ok(_) => {}
+                    Err(e_string) => panic!("{}", e_string),
+                }
+            }
+
+            ticker -= 1.0;
         }
 
         render_context(&ctx);

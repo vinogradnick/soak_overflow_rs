@@ -1,96 +1,77 @@
-use std::{collections::HashMap, fmt};
-
 use crate::data::position::Position;
-
-#[derive(Debug, Clone, Default)]
-pub struct HeroStore {
-    pub owner_id: usize,
-    pub heroes: HashMap<usize, Hero>,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Hero {
-    pub agent_id: usize,
     pub is_owner: bool,
+    pub agent_id: i32,
+    pub player: i32,
+    pub soaking_power: i32,
     pub shoot_cooldown: i32,
     pub optimal_range: i32,
-    pub soaking_power: i32,
     pub splash_bombs: i32,
     pub position: Position,
     pub cooldown: i32,
     pub wetness: i32,
-    pub initialized: bool,
+    pub alive: bool,
 }
 
-impl Hero {
-    pub fn new(
-        agent_id: usize,
-        player: bool,
-        shoot_cooldown: i32,
-        optimal_range: i32,
-        soaking_power: i32,
-        splash_bombs: i32,
-        position: Position,
-    ) -> Self {
-        Hero {
-            agent_id,
-            is_owner: player,
-            shoot_cooldown,
-            optimal_range,
-            soaking_power,
-            splash_bombs,
-            position: position,
-            cooldown: 0,
-            wetness: 0,
-            initialized: false,
-        }
-    }
+impl Hero {}
+
+#[derive(Debug, Clone)]
+pub struct HeroStore {
+    pub heroes: Vec<Hero>,
+    pub my_heroes: Vec<Hero>,
+    pub enemies: Vec<Hero>,
 }
 
 impl HeroStore {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn update_hero(&mut self, idx: usize, hero: &Hero) {
-        self.heroes.insert(idx, hero.clone());
-    }
-    pub fn owns<'a>(&'a self) -> impl Iterator<Item = &'a Hero> {
-        self.heroes.values().filter(move |x| x.is_owner)
-    }
-
-    pub fn enemies<'a>(&'a self) -> impl Iterator<Item = &'a Hero> {
-        self.heroes.values().filter(move |x| !x.is_owner)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum HeroAction {
-    Move(Position),
-    Throw(Position),
-    Shoot(usize), // agent_id цели
-    Wait,
-}
-
-// Реализация Display для HeroAction
-impl fmt::Display for HeroAction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            HeroAction::Move(pos) => write!(f, "MOVE {} {}", pos.x, pos.y),
-            HeroAction::Shoot(id) => write!(f, "SHOOT {}", id),
-            HeroAction::Wait => write!(f, "WAIT"),
-            HeroAction::Throw(position) => write!(f, "THROW {} {}", position.x, position.y),
+    pub fn new() -> HeroStore {
+        Self {
+            heroes: vec![],
+            my_heroes: vec![],
+            enemies: vec![],
         }
     }
 }
 
-#[derive(Debug)]
-pub struct HeroCommand(pub usize, pub Vec<HeroAction>);
+/// Возможные действия героя за один ход.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeroActionVariant {
+    /// Попытка перемещения к позиции (x, y)
+    Move(Position),
+    /// Попытка выстрела по агенту с id
+    Shoot { id: i32 },
+    /// Попытка броска взрывной бомбы в позицию (x, y)
+    Throw(Position),
+    /// Занять укрытие, снижая урон на 25% этим ходом
+    HunkerDown,
+    /// Отправка сообщения в viewer (для отладки)
+    Message { text: String },
+}
 
-// Реализация Display для HeroCommand
-impl fmt::Display for HeroCommand {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let actions_str: Vec<String> = self.1.iter().map(|a| a.to_string()).collect();
-        write!(f, "{}; {}", self.0, actions_str.join("; "))
+/// Действие героя в виде пары (id агента, список действий)
+pub struct HeroAction(pub i32, pub Vec<HeroActionVariant>);
+
+impl HeroAction {
+    pub fn new(agent_id: i32) -> Self {
+        Self(agent_id, vec![])
+    }
+    pub fn to_string(&self) -> String {
+        let agent_id = self.0;
+        let actions_str: Vec<String> = self
+            .1
+            .iter()
+            .map(|action| match action {
+                HeroActionVariant::Move(position) => format!("MOVE {} ", position),
+                HeroActionVariant::Shoot { id } => format!("SHOOT {}", id),
+                HeroActionVariant::Throw(position) => format!("THROW {} ", position),
+                HeroActionVariant::HunkerDown => "HUNKER_DOWN".to_string(),
+                HeroActionVariant::Message { text } => format!("MESSAGE {}", text),
+            })
+            .collect();
+
+        std::iter::once(agent_id.to_string())
+            .chain(actions_str.into_iter())
+            .collect::<Vec<_>>()
+            .join(";")
     }
 }

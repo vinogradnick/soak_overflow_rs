@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>DSL Visualizer</title>
+    <link href="https:///prismjs@v1.x/themes/prism.css" rel="stylesheet" />
+
+    <style>
+      * {
+        padding: 0;
+        margin: 0;
+      }
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: #f5f5f5;
+        overflow: hidden;
+      }
+
+      #dsl {
+        width: 400px;
+        height: 180px;
+        font-family: monospace;
+        font-size: 14px;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #ccc;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        margin-bottom: 10px;
+        resize: vertical;
+        background-color: #fff;
+      }
+
+      #mainCanvas {
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+        margin-top: 10px;
+        background-color: #fff;
+      }
+
+      #controls {
+        top: 20px;
+        right: 20px;
+        position: absolute;
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+        flex-direction: column;
+      }
+
+      button {
+        padding: 8px 16px;
+        font-size: 14px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        background-color: #4caf50;
+        color: #fff;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        transition: background 0.2s;
+      }
+
+      button:hover {
+        background-color: #45a049;
+      }
+
+      button:active {
+        transform: translateY(1px);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      }
+
+      /* Скроллбар textarea */
+      #dsl::-webkit-scrollbar {
+        width: 10px;
+      }
+
+      #dsl::-webkit-scrollbar-thumb {
+        background: #bbb;
+        border-radius: 5px;
+      }
+
+      #dsl::-webkit-scrollbar-thumb:hover {
+        background: #999;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="controls">
+      <textarea id="dsl">
+1 CLEAR #ffffff
+1 DRAW RECT 50 50 200 100 #f5a623
+2 DRAW CIRCLE 400 300 50 #27ae60
+2 DRAW LINE 0 0 800 600 #e74c3c 3
+1 TEXT 100 200 "Hello DSL" #000000
+</textarea
+      >
+      <button id="drawBtn">Render</button>
+    </div>
+
+    <canvas id="mainCanvas" width="800" height="600"></canvas>
+    <script src="https:///prismjs@v1.x/components/prism-core.min.js"></script>
+    <script src="https:///prismjs@v1.x/plugins/autoloader/prism-autoloader.min.js"></script>
+
+    <script>
+      /* --- Registry + Commands (расширяемая архитектура) --- */
+      class CommandRegistry {
+        constructor() {
+          this.commands = new Map();
+        }
+        register(key, cmdClass) {
+          this.commands.set(key.toUpperCase(), cmdClass);
+        }
+        parse(line) {
+          const tokens = line.trim().split(/\s+/);
+          const layer = +tokens[0];
+          let cmdKey, args;
+          if (tokens[1].toUpperCase() === "DRAW") {
+            cmdKey = tokens[1] + " " + tokens[2];
+            args = tokens.slice(3);
+          } else {
+            cmdKey = tokens[1];
+            args = tokens.slice(2);
+          }
+          const CmdClass = this.commands.get(cmdKey.toUpperCase());
+          if (!CmdClass) throw new Error("Unknown command: " + cmdKey);
+          const cmd = CmdClass.parse(args);
+          cmd.layer = layer;
+          return cmd;
+        }
+      }
+
+      class BaseCommand {
+        constructor(layer = 0) {
+          this.layer = layer;
+        }
+        draw(ctx) {}
+      }
+
+      class ClearCommand extends BaseCommand {
+        static parse(args) {
+          return new ClearCommand(args[0]);
+        }
+        constructor(color) {
+          super();
+          this.color = color;
+        }
+        draw(ctx) {
+          ctx.fillStyle = this.color;
+          ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        }
+      }
+
+      class RectCommand extends BaseCommand {
+        static parse(args) {
+          return new RectCommand(
+            +args[0],
+            +args[1],
+            +args[2],
+            +args[3],
+            args[4]
+          );
+        }
+        constructor(x, y, w, h, color) {
+          super();
+          Object.assign(this, { x, y, w, h, color });
+        }
+        draw(ctx) {
+          ctx.fillStyle = this.color;
+          ctx.fillRect(this.x, this.y, this.w, this.h);
+        }
+      }
+
+      class CircleCommand extends BaseCommand {
+        static parse(args) {
+          return new CircleCommand(+args[0], +args[1], +args[2], args[3]);
+        }
+        constructor(x, y, r, color) {
+          super();
+          Object.assign(this, { x, y, r, color });
+        }
+        draw(ctx) {
+          ctx.fillStyle = this.color;
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      class LineCommand extends BaseCommand {
+        static parse(args) {
+          return new LineCommand(
+            +args[0],
+            +args[1],
+            +args[2],
+            +args[3],
+            args[4],
+            args[5] ? +args[5] : 1
+          );
+        }
+        constructor(x1, y1, x2, y2, color, width) {
+          super();
+          Object.assign(this, { x1, y1, x2, y2, color, width });
+        }
+        draw(ctx) {
+          ctx.strokeStyle = this.color;
+          ctx.lineWidth = this.width;
+          ctx.beginPath();
+          ctx.moveTo(this.x1, this.y1);
+          ctx.lineTo(this.x2, this.y2);
+          ctx.stroke();
+        }
+      }
+
+      class TextCommand extends BaseCommand {
+        static parse(args) {
+          const text = args[2].startsWith('"') ? args[2].slice(1, -1) : args[2];
+          return new TextCommand(+args[0], +args[1], text, args[3]);
+        }
+        constructor(x, y, text, color) {
+          super();
+          Object.assign(this, { x, y, text, color });
+        }
+        draw(ctx) {
+          ctx.fillStyle = this.color;
+          ctx.fillText(this.text, this.x, this.y);
+        }
+      }
+
+      /* --- Инициализация registry --- */
+      const registry = new CommandRegistry();
+      registry.register("CLEAR", ClearCommand);
+      registry.register("DRAW RECT", RectCommand);
+      registry.register("DRAW CIRCLE", CircleCommand);
+      registry.register("DRAW LINE", LineCommand);
+      registry.register("TEXT", TextCommand);
+
+      /* --- Рендер --- */
+      function renderDSL(textarea) {
+        try {
+          const commands = textarea
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => registry.parse(line));
+          commands.sort((a, b) => a.layer - b.layer);
+          const canvas = document.getElementById("mainCanvas");
+          canvas.height = window.innerHeight;
+          canvas.width = window.outerWidth;
+          const ctx = canvas.getContext("2d");
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          commands.forEach((cmd) => cmd.draw(ctx));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      const textarea = document.getElementById("dsl");
+      document
+        .getElementById("drawBtn")
+        .addEventListener("click", () => renderDSL(textarea.value));
+
+      // Автоперерисовка при наборе
+      textarea.addEventListener("input", () => renderDSL(textarea.value));
+
+      // Инициалный рендер
+      renderDSL(textarea.value);
+    </script>
+  </body>
+</html>

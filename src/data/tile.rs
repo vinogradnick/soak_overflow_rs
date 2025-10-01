@@ -7,6 +7,16 @@ pub enum TileType {
     Empty = 2,
 }
 
+impl From<i32> for TileType {
+    fn from(value: i32) -> Self {
+        match value {
+            2 => Self::HighWall,
+            1 => Self::LowWall,
+            _ => Self::Empty,
+        }
+    }
+}
+
 impl From<TileType> for i32 {
     fn from(value: TileType) -> Self {
         match value {
